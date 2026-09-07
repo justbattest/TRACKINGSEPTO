@@ -5,6 +5,7 @@ import { Bouton, Carte, Champ, classesListe, classesSaisie, EtiquetteEtape, Moda
 import FicheLead from '@/components/FicheLead'
 import { useStore } from '@/lib/store'
 import { formatDate } from '@/lib/dates'
+import { dateDuJour, telechargerCsv } from '@/lib/telecharger'
 import { cascade, euros } from '@/lib/engine'
 import { ETAPES, LIBELLE_ETAPE } from '@/lib/types'
 
@@ -43,23 +44,16 @@ export default function Leads() {
     const entetes = ['Cabinet', 'Praticien', 'Email', 'Téléphone', 'Ville', 'CP', 'Région', 'Commercial', 'Étape', 'Reçu le', 'Formule', 'Licences', 'Prix payé / mois']
     const lignes = filtres.map((l) => {
       const contrat = contratDuLead(l.id)
+      const detail = contrat ? cascade(contrat) : null
       return [
         l.cabinet, l.praticien, l.email, l.telephone, l.ville, l.codePostal,
         regionDe(l.regionId), commercialDe(l.commercialId)?.nom ?? '', LIBELLE_ETAPE[l.etape],
         formatDate(l.recuLe), contrat?.plan ?? '',
-        contrat ? String(cascade(contrat).licences) : '',
-        contrat ? cascade(contrat).prixPaye.toFixed(2) : '',
+        detail ? String(detail.licences) : '',
+        detail ? detail.prixPaye.toFixed(2) : '',
       ]
     })
-    const csv = [entetes, ...lignes]
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';'))
-      .join('\n')
-    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `leads-septodont-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    void telechargerCsv(`leads-septodont-${dateDuJour()}.csv`, [entetes, ...lignes])
   }
 
   return (

@@ -4,6 +4,7 @@ import Entete from '@/components/Entete'
 import { Bouton, Carte, classesListe, EtiquetteStatut, LIBELLE_STATUT, Tuile, Vide } from '@/components/ui'
 import { cascade, euros, total } from '@/lib/engine'
 import { formatDate, libellePeriode, periodeDe } from '@/lib/dates'
+import { dateDuJour, telechargerCsv } from '@/lib/telecharger'
 import { useStore } from '@/lib/store'
 import type { StatutCommission } from '@/lib/types'
 
@@ -59,15 +60,7 @@ export default function Commissions() {
         ]
       }),
     )
-    const csv = [entetes, ...lignes]
-      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'))
-      .join('\n')
-    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `commissions-septodont-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    void telechargerCsv(`commissions-septodont-${dateDuJour()}.csv`, [entetes, ...lignes])
   }
 
   return (

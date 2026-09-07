@@ -95,7 +95,7 @@ export default function Commerciaux() {
  */
 function LienCaptation({ slug }: { slug: string }) {
   const [copie, setCopie] = useState(false)
-  const lien = `${window.location.origin}/l/${slug}`
+  const lien = `${window.location.origin}${window.location.pathname}#/l/${slug}`
 
   return (
     <button
