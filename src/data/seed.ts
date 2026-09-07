@@ -126,6 +126,9 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
       if (etape === 'signe') {
         const signeLe = new Date(historique[historique.length - 1].date)
         const annuel = rnd() > 0.35
+        // Repartition observee des cabinets liberaux : majorite de 1-2 postes.
+        const tirageLicences = rnd()
+        const licences = tirageLicences > 0.9 ? 4 : tirageLicences > 0.7 ? 3 : tirageLicences > 0.35 ? 2 : 1
         // ~12% des contrats signes il y a plus de 3 mois ont churne.
         const ancien = reculMois >= 3
         const churn = ancien && rnd() > 0.88
@@ -133,6 +136,7 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
           id: `k${contrats.length + 1}`,
           leadId: id,
           plan: annuel ? 'annuel' : 'mensuel',
+          licences,
           prixCatalogue: annuel ? 179 : 224,
           tauxRemise: 0.1,
           tauxCommission: 0.15,

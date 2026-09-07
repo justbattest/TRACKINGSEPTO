@@ -7,6 +7,7 @@ import {
   Coins,
   FileSpreadsheet,
   Link2,
+  Stethoscope,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -19,6 +20,7 @@ import { LIBELLE_ETAPE, type Etape } from '@/lib/types'
 
 const annuel = simuler('annuel')
 const mensuel = simuler('mensuel')
+const troisPostes = simuler('annuel', 3)
 
 export default function Guide() {
   return (
@@ -36,16 +38,65 @@ export default function Guide() {
           </h2>
           <p className="mt-2 text-[14px] leading-relaxed text-encre">
             Septodont nous envoie des cabinets dentaires. Cet outil enregistre chacun d’eux, suit ce
-            qu’il devient, et calcule <strong className="font-semibold">tout seul</strong> l’argent
+            qu’il devient, compte les licences souscrites, et calcule{' '}
+            <strong className="font-semibold">tout seul</strong> l’argent
             qui circule : la remise accordée au cabinet, la commission due au commercial Septodont,
             et ce qui reste à Alyxa. Plus aucun tableur à maintenir, plus aucune discussion sur les
             chiffres.
           </p>
         </section>
 
-        {/* 2 — Les trois regles du deal. */}
+        {/* 2 — La vente au poste, prealable a tout le reste. */}
         <section>
-          <TitreSection numero={1} titre="Les 3 règles du partenariat" />
+          <TitreSection numero={1} titre="On vend au poste, pas au cabinet" />
+          <Carte>
+            <div className="px-6 py-5">
+              <p className="text-[13.5px] leading-relaxed text-encre-2">
+                Une licence Alyxa équipe <strong className="font-semibold text-encre">un praticien</strong>.
+                Un cabinet où exercent 3 dentistes peut donc souscrire 3 licences — et c’est un
+                seul lead, un seul contrat, mais trois fois le montant.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[1, 2, 3].map((n) => {
+                  const c = simuler('annuel', n)
+                  return (
+                    <div
+                      key={n}
+                      className={`rounded-lg border px-4 py-3.5 ${
+                        n === 3 ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)]' : 'border-bord'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {Array.from({ length: n }, (_, i) => (
+                          <Stethoscope key={i} size={15} className="text-[var(--color-marque)]" />
+                        ))}
+                      </div>
+                      <div className="mt-2 text-[13px] font-semibold">
+                        {n} praticien{n > 1 ? 's' : ''}
+                      </div>
+                      <div className="tabulaire mt-1 text-[15px] font-semibold">
+                        {euros(c.prixPaye)}
+                        <span className="text-[11.5px] font-normal text-encre-3"> / mois</span>
+                      </div>
+                      <div className="tabulaire mt-0.5 text-[12px] text-encre-2">
+                        dont {euros(c.commission)} de commission
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="mt-3.5 text-[12.5px] leading-relaxed text-encre-3">
+                Exemple en formule annuelle. Le nombre de licences se choisit au moment de passer le
+                lead en « Signé », et se modifie ensuite depuis la fiche si le cabinet ouvre ou
+                ferme un poste.
+              </p>
+            </div>
+          </Carte>
+        </section>
+
+        {/* 3 — Les trois regles du deal. */}
+        <section>
+          <TitreSection numero={2} titre="Les 3 règles du partenariat" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Regle
               chiffre="−10 %"
@@ -55,7 +106,7 @@ export default function Guide() {
             <Regle
               chiffre="15 %"
               titre="pour le commercial"
-              texte="Le commercial Septodont qui a apporté le lead touche 15 % de ce que le cabinet paie, chaque mois."
+              texte="Le commercial Septodont qui a apporté le lead touche 15 % de ce que le cabinet paie, toutes licences confondues, chaque mois."
             />
             <Regle
               chiffre="12 mois"
@@ -64,9 +115,9 @@ export default function Guide() {
             />
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <ExempleChiffre
-              titre="Un cabinet prend l’annuel"
+              titre="Un praticien seul, en annuel"
               lignes={[
                 ['Prix public Alyxa', euros(annuel.prixCatalogue), 'neutre'],
                 ['Remise Septodont −10 %', `− ${euros(annuel.remise)}`, 'sortie'],
@@ -77,7 +128,7 @@ export default function Guide() {
               conclusion={`Pendant 12 mois → ${euros(annuel.commission * 12)} de commission au total.`}
             />
             <ExempleChiffre
-              titre="Un cabinet prend le mensuel"
+              titre="Un praticien seul, en mensuel"
               lignes={[
                 ['Prix public Alyxa', euros(mensuel.prixCatalogue), 'neutre'],
                 ['Remise Septodont −10 %', `− ${euros(mensuel.remise)}`, 'sortie'],
@@ -87,12 +138,23 @@ export default function Guide() {
               ]}
               conclusion={`Engagement d’un mois → une seule commission de ${euros(mensuel.commission)}.`}
             />
+            <ExempleChiffre
+              titre="Un cabinet à 3 postes, en annuel"
+              lignes={[
+                ['Prix public × 3 licences', euros(troisPostes.prixCatalogue), 'neutre'],
+                ['Remise Septodont −10 %', `− ${euros(troisPostes.remise)}`, 'sortie'],
+                ['Le cabinet paie', euros(troisPostes.prixPaye), 'fort'],
+                ['Commission commerciale 15 %', `− ${euros(troisPostes.commission)}`, 'sortie'],
+                ['Il reste à Alyxa', euros(troisPostes.netAlyxa), 'entree'],
+              ]}
+              conclusion={`Pendant 12 mois → ${euros(troisPostes.commission * 12)} de commission au total.`}
+            />
           </div>
         </section>
 
         {/* 3 — Le cycle de vie d'un lead. */}
         <section>
-          <TitreSection numero={2} titre="La vie d’un lead, de A à Z" />
+          <TitreSection numero={3} titre="La vie d’un lead, de A à Z" />
           <Carte>
             <div className="space-y-0 px-6 py-6">
               {(
@@ -101,7 +163,7 @@ export default function Guide() {
                   ['contacte', 'On a joint le praticien. Le chrono du suivi démarre.'],
                   ['demo_planifiee', 'Une démo est calée dans l’agenda.'],
                   ['demo_faite', 'La démo a eu lieu. Le cabinet décide.'],
-                  ['signe', 'Le cabinet souscrit. À cet instant, l’outil crée le contrat et génère TOUT l’échéancier de commission du commercial, mois par mois.'],
+                  ['signe', 'Le cabinet souscrit. Vous indiquez la formule et le nombre de licences, puis l’outil crée le contrat et génère TOUT l’échéancier de commission du commercial, mois par mois.'],
                 ] as [Etape, string][]
               ).map(([etape, texte], i, tous) => (
                 <div key={etape} className="flex gap-4">
@@ -132,7 +194,7 @@ export default function Guide() {
 
         {/* 4 — Comment saisir un lead. */}
         <section>
-          <TitreSection numero={3} titre="Deux façons d’enregistrer un lead" />
+          <TitreSection numero={4} titre="Deux façons d’enregistrer un lead" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Carte>
               <div className="px-5 py-5">
@@ -169,7 +231,7 @@ export default function Guide() {
 
         {/* 5 — A quoi sert chaque page. */}
         <section>
-          <TitreSection numero={4} titre="À quoi sert chaque page" />
+          <TitreSection numero={5} titre="À quoi sert chaque page" />
           <Carte>
             <div className="divide-y divide-bord">
               <Page
@@ -208,7 +270,7 @@ export default function Guide() {
 
         {/* 6 — La routine. */}
         <section>
-          <TitreSection numero={5} titre="La routine à tenir" />
+          <TitreSection numero={6} titre="La routine à tenir" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Routine
               rythme="Chaque jour"
@@ -240,7 +302,7 @@ export default function Guide() {
 
         {/* 7 — Les points de vigilance. */}
         <section>
-          <TitreSection numero={6} titre="Les 4 pièges à connaître" />
+          <TitreSection numero={7} titre="Les 5 pièges à connaître" />
           <Carte>
             <div className="divide-y divide-bord">
               <Piege
@@ -250,6 +312,10 @@ export default function Guide() {
               <Piege
                 titre="La définition de « signé »"
                 texte="Un lead ne passe en « Signé » que lorsque le contrat est réellement souscrit, pas quand le cabinet dit oui au téléphone. C’est ce clic qui engage l’argent : il crée un échéancier de commission."
+              />
+              <Piege
+                titre="Le nombre de licences se vérifie"
+                texte={`C’est le multiplicateur de tout : un cabinet à 3 postes rapporte ${euros(troisPostes.prixPaye)} par mois au lieu de ${euros(annuel.prixPaye)}, et coûte ${euros(troisPostes.commission)} de commission au lieu de ${euros(annuel.commission)}. Si le cabinet ouvre un poste en cours de route, ajustez-le sur sa fiche : les échéances déjà payées ne bougent pas, les suivantes se recalculent.`}
               />
               <Piege
                 titre="La formule change tout"

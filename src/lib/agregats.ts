@@ -1,5 +1,5 @@
 /** Calculs d'agregation consommes par les pages. Aucun effet de bord. */
-import { cascade, centimes, estActif, total } from './engine'
+import { cascade, centimes, estActif, licencesActives, total } from './engine'
 import { dernieresPeriodes, moisEcoules, periodeDe, type Periode } from './dates'
 import { ETAPES_ENTONNOIR, type Commercial, type Commission, type Contrat, type Etape, type Lead } from './types'
 
@@ -75,6 +75,8 @@ export interface PerfCommercial {
   leads: number
   signatures: number
   tauxConversion: number
+  /** Postes de praticien actuellement equipes grace a lui. */
+  licencesApportees: number
   /** Revenu mensuel recurrent apporte, remise deduite. */
   mrrApporte: number
   commissionsDues: number
@@ -111,6 +113,7 @@ export function perfCommerciaux(
         leads: siens.length,
         signatures: contratsSiens.length,
         tauxConversion: siens.length ? contratsSiens.length / siens.length : 0,
+        licencesApportees: licencesActives(contratsSiens),
         mrrApporte: centimes(
           contratsSiens.filter((c) => estActif(c)).reduce((t, c) => t + cascade(c).prixPaye, 0),
         ),
@@ -129,6 +132,7 @@ export interface PerfRegion {
   leads: number
   signatures: number
   tauxConversion: number
+  licences: number
   mrrApporte: number
 }
 
@@ -148,6 +152,7 @@ export function perfRegions(
         leads: siens.length,
         signatures: contratsRegion.length,
         tauxConversion: siens.length ? contratsRegion.length / siens.length : 0,
+        licences: licencesActives(contratsRegion),
         mrrApporte: centimes(
           contratsRegion.filter((c) => estActif(c)).reduce((t, c) => t + cascade(c).prixPaye, 0),
         ),

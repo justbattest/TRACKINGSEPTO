@@ -48,7 +48,7 @@ export default function Commerciaux() {
                   <Mesure
                     libelle="Signés"
                     valeur={String(p.signatures)}
-                    detail={pourcent(p.tauxConversion, 1)}
+                    detail={`${pourcent(p.tauxConversion, 1)} · ${p.licencesApportees} licence${p.licencesApportees > 1 ? 's' : ''}`}
                   />
                   <Mesure libelle="Revenu apporté" valeur={euros(p.mrrApporte)} detail="par mois" />
                   <Mesure

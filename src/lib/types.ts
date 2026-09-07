@@ -65,7 +65,12 @@ export interface Contrat {
   id: string
   leadId: string
   plan: Plan
-  /** Prix catalogue mensuel Alyxa au moment de la signature. */
+  /**
+   * Nombre de licences souscrites par le cabinet. Alyxa se vend au poste de
+   * praticien : un cabinet de 3 dentistes peut prendre 3 licences.
+   */
+  licences: number
+  /** Prix catalogue mensuel Alyxa PAR LICENCE, au moment de la signature. */
   prixCatalogue: number
   /** Remise Septodont appliquee au cabinet, ex. 0.10 */
   tauxRemise: number

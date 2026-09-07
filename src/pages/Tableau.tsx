@@ -15,7 +15,7 @@ import Entete from '@/components/Entete'
 import { Carte, EtiquetteEtape, Tuile, Vide } from '@/components/ui'
 import { AXE, GRILLE, Infobulle, Legende, RAMPE_ORDINALE, SERIES } from '@/components/graphiques'
 import { entonnoir, leadsDormants, perfCommerciaux, perfRegions, serieMensuelle, tauxChurn } from '@/lib/agregats'
-import { euros, eurosCourt, margeMensuelle, mrr, pourcent, total } from '@/lib/engine'
+import { euros, eurosCourt, licencesActives, margeMensuelle, mrr, pourcent, total } from '@/lib/engine'
 import { formatDate, libellePeriode, periodeDe } from '@/lib/dates'
 import { LIBELLE_ETAPE } from '@/lib/types'
 import { useStore } from '@/lib/store'
@@ -44,6 +44,7 @@ export default function Tableau() {
   const revenuMensuel = mrr(contrats)
   const marge = margeMensuelle(contrats)
   const signes = etapes[etapes.length - 1].atteint
+  const licences = licencesActives(contrats)
   const leadsDuMois = serie[serie.length - 1]?.leads ?? 0
   const leadsMoisPrecedent = serie[serie.length - 2]?.leads ?? 0
 
@@ -60,7 +61,7 @@ export default function Tableau() {
 
       <div className="space-y-6 px-6 py-6 lg:px-8">
         {/* Les 4 chiffres qui repondent aux 4 questions du deal. */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <Tuile
             libelle="Leads reçus au total"
             valeur={String(leads.length)}
@@ -70,6 +71,11 @@ export default function Tableau() {
             libelle="Cabinets signés"
             valeur={String(signes)}
             detail={`${pourcent(leads.length ? signes / leads.length : 0, 1)} des leads reçus`}
+          />
+          <Tuile
+            libelle="Licences actives"
+            valeur={String(licences)}
+            detail="Un poste de praticien équipé = une licence"
           />
           <Tuile
             libelle="Revenu mensuel encaissé"
@@ -214,7 +220,8 @@ export default function Tableau() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-medium">{p.commercial.nom}</div>
                     <div className="text-[12px] text-encre-3">
-                      {regionDe(p.commercial.regionId)} · {p.leads} leads · {p.signatures} signés
+                      {regionDe(p.commercial.regionId)} · {p.leads} leads · {p.signatures} signés ·{' '}
+                      {p.licencesApportees} licence{p.licencesApportees > 1 ? 's' : ''}
                     </div>
                   </div>
                   <div className="text-right">
@@ -240,7 +247,7 @@ export default function Tableau() {
                   <Tooltip
                     cursor={{ fill: '#f2f4f7' }}
                     content={({ active, payload }) => {
-                      const r = payload?.[0]?.payload as { nom: string; leads: number; signatures: number; tauxConversion: number; mrrApporte: number } | undefined
+                      const r = payload?.[0]?.payload as { nom: string; leads: number; signatures: number; licences: number; tauxConversion: number; mrrApporte: number } | undefined
                       return (
                         <Infobulle
                           actif={active && !!r}
@@ -248,6 +255,7 @@ export default function Tableau() {
                           lignes={[
                             { libelle: 'Leads reçus', valeur: String(r?.leads ?? 0) },
                             { libelle: 'Signés', valeur: String(r?.signatures ?? 0) },
+                            { libelle: 'Licences actives', valeur: String(r?.licences ?? 0) },
                             { libelle: 'Conversion', valeur: pourcent(r?.tauxConversion ?? 0, 1) },
                             { libelle: 'Revenu mensuel', valeur: euros(r?.mrrApporte ?? 0) },
                           ]}

@@ -8,16 +8,18 @@ import { REGLAGES_DEFAUT, type Plan } from '@/lib/types'
 
 export default function Simulateur() {
   const [plan, setPlan] = useState<Plan>('annuel')
+  const [licences, setLicences] = useState(2)
   const [leadsParMois, setLeadsParMois] = useState(20)
   const [conversion, setConversion] = useState(25)
   const [partAnnuel, setPartAnnuel] = useState(65)
+  const [licencesMoyennes, setLicencesMoyennes] = useState(2)
 
-  const detail = useMemo(() => simuler(plan), [plan])
+  const detail = useMemo(() => simuler(plan, licences), [plan, licences])
 
   /** Projection sur 12 mois : le stock de clients s'accumule, les commissions suivent. */
   const projection = useMemo(() => {
-    const annuel = simuler('annuel')
-    const mensuel = simuler('mensuel')
+    const annuel = simuler('annuel', licencesMoyennes)
+    const mensuel = simuler('mensuel', licencesMoyennes)
     const signaturesParMois = (leadsParMois * conversion) / 100
     const nbAnnuel = (signaturesParMois * partAnnuel) / 100
     const nbMensuel = signaturesParMois - nbAnnuel
@@ -35,9 +37,10 @@ export default function Simulateur() {
         commission: centimes(commission),
         net: centimes(encaisse - commission),
         clients: Math.round(clientsAnnuels + nbMensuel),
+        licences: Math.round((clientsAnnuels + nbMensuel) * licencesMoyennes),
       }
     })
-  }, [leadsParMois, conversion, partAnnuel])
+  }, [leadsParMois, conversion, partAnnuel, licencesMoyennes])
 
   const douzieme = projection[11]
   const cumulCommission = centimes(projection.reduce((t, p) => t + p.commission, 0))
@@ -54,9 +57,31 @@ export default function Simulateur() {
         {/* Partie 1 — le detail d'UN abonnement, la brique de base. */}
         <Carte
           titre="Le détail d’un abonnement"
-          aide="D’où vient chaque euro, et où il va. C’est la base de tout le reste."
+          aide="Alyxa se vend au poste : un cabinet de 3 praticiens prend 3 licences. D’où vient chaque euro, et où il va."
           action={
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12.5px] text-encre-2">Licences</span>
+                <div className="flex items-center gap-1 rounded-lg border border-bord-fort p-1">
+                  <button
+                    onClick={() => setLicences(Math.max(1, licences - 1))}
+                    disabled={licences <= 1}
+                    aria-label="Retirer une licence"
+                    className="rounded-md px-1.5 py-0.5 text-encre-2 transition-colors hover:bg-fond disabled:opacity-30"
+                  >
+                    −
+                  </button>
+                  <span className="tabulaire w-5 text-center text-[13px] font-semibold">{licences}</span>
+                  <button
+                    onClick={() => setLicences(Math.min(10, licences + 1))}
+                    disabled={licences >= 10}
+                    aria-label="Ajouter une licence"
+                    className="rounded-md px-1.5 py-0.5 text-encre-2 transition-colors hover:bg-fond disabled:opacity-30"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
               {(['annuel', 'mensuel'] as Plan[]).map((p) => (
                 <button
                   key={p}
@@ -75,11 +100,11 @@ export default function Simulateur() {
         >
           <div className="space-y-3 px-5 py-6">
             <Etage
-              libelle="Prix catalogue Alyxa"
+              libelle={`Prix catalogue Alyxa × ${detail.licences} licence${detail.licences > 1 ? 's' : ''}`}
               montant={detail.prixCatalogue}
               largeur={100}
               couleur="#c9d4e2"
-              note="Le tarif public"
+              note={`${euros(detail.prixUnitaire)} par poste de praticien`}
             />
             <Etage
               libelle="− Remise Septodont (10 %)"
@@ -154,6 +179,14 @@ export default function Simulateur() {
                 onChange={setConversion}
               />
               <Curseur
+                libelle="Licences moyennes par cabinet"
+                valeur={licencesMoyennes}
+                affichage={`${licencesMoyennes} poste${licencesMoyennes > 1 ? 's' : ''}`}
+                min={1}
+                max={6}
+                onChange={setLicencesMoyennes}
+              />
+              <Curseur
                 libelle="Part de contrats annuels"
                 valeur={partAnnuel}
                 affichage={`${partAnnuel} % annuel / ${100 - partAnnuel} % mensuel`}
@@ -164,7 +197,9 @@ export default function Simulateur() {
 
               <div className="rounded-lg bg-fond px-4 py-3.5 text-[12.5px] leading-relaxed text-encre-2">
                 Hypothèse : un contrat annuel reste 12 mois et génère 12 commissions. Un contrat
-                mensuel n’en génère qu’une, le mois de sa signature.
+                mensuel n’en génère qu’une, le mois de sa signature. Chaque licence est
+                commissionnée, donc un cabinet à {licencesMoyennes} postes rapporte{' '}
+                {licencesMoyennes} fois plus au commercial qu’un cabinet à un poste.
               </div>
             </div>
           </Carte>
@@ -200,7 +235,7 @@ export default function Simulateur() {
                       return (
                         <Infobulle
                           actif={active && !!p}
-                          titre={`Mois ${String(label).slice(1)} · ${p?.clients ?? 0} cabinets actifs`}
+                          titre={`Mois ${String(label).slice(1)} · ${p?.clients ?? 0} cabinets · ${p?.licences ?? 0} licences`}
                           lignes={[
                             { libelle: 'Encaissé', valeur: euros(p?.encaisse ?? 0) },
                             { libelle: 'Marge Alyxa', valeur: euros(p?.net ?? 0), couleur: SERIES.s1 },
@@ -234,7 +269,7 @@ export default function Simulateur() {
           <Tuile
             libelle="Cabinets actifs au 12e mois"
             valeur={String(douzieme.clients)}
-            detail={`${Math.round((leadsParMois * conversion) / 100)} signatures par mois`}
+            detail={`${douzieme.licences} licences · ${Math.round((leadsParMois * conversion) / 100)} signatures par mois`}
           />
           <Tuile
             libelle="Revenu mensuel au 12e mois"
@@ -259,7 +294,7 @@ export default function Simulateur() {
           Basé sur la grille en vigueur : {euros(REGLAGES_DEFAUT.prixCatalogue.annuel)}/mois en annuel,{' '}
           {euros(REGLAGES_DEFAUT.prixCatalogue.mensuel)}/mois en mensuel · remise{' '}
           {pourcent(REGLAGES_DEFAUT.tauxRemise)} · commission {pourcent(REGLAGES_DEFAUT.tauxCommission)} ·
-          plafond {REGLAGES_DEFAUT.plafondMois} mois. Hors résiliation.
+          plafond {REGLAGES_DEFAUT.plafondMois} mois, par licence. Hors résiliation.
         </p>
       </div>
     </>

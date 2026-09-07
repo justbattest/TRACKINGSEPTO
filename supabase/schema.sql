@@ -87,6 +87,9 @@ create table contrats (
   id               uuid primary key default gen_random_uuid(),
   lead_id          uuid not null unique references leads(id) on delete cascade,
   plan             formule not null,
+  -- Alyxa se vend au poste : un cabinet de 3 praticiens souscrit 3 licences.
+  licences         int not null default 1 check (licences >= 1),
+  -- Prix catalogue PAR LICENCE, fige au jour de la signature.
   prix_catalogue   numeric(10,2) not null,
   taux_remise      numeric(5,4) not null default 0.1000,
   taux_commission  numeric(5,4) not null default 0.1500,
@@ -98,11 +101,17 @@ create table contrats (
 );
 
 -- Colonnes calculees : la cascade de prix ne se recalcule jamais a la main.
+-- On arrondit sur le total du contrat, licences comprises : c'est le montant
+-- reellement facture, pas une somme d'arrondis par licence.
 alter table contrats
   add column prix_paye numeric(10,2)
-    generated always as (round(prix_catalogue * (1 - taux_remise), 2)) stored,
+    generated always as (
+      round(round(prix_catalogue * licences, 2) * (1 - taux_remise), 2)
+    ) stored,
   add column commission_mensuelle numeric(10,2)
-    generated always as (round(round(prix_catalogue * (1 - taux_remise), 2) * taux_commission, 2)) stored;
+    generated always as (
+      round(round(round(prix_catalogue * licences, 2) * (1 - taux_remise), 2) * taux_commission, 2)
+    ) stored;
 
 -- ----------------------------------------------------------------------------
 -- Commissions
@@ -183,7 +192,7 @@ end;
 $$;
 
 create trigger contrats_sync_echeancier
-  after insert or update of churn_le, mois_engagement, prix_catalogue, taux_remise, taux_commission
+  after insert or update of churn_le, mois_engagement, licences, prix_catalogue, taux_remise, taux_commission
   on contrats
   for each row execute function sync_echeancier();
 

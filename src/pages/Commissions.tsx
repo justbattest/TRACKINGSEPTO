@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Download } from 'lucide-react'
 import Entete from '@/components/Entete'
 import { Bouton, Carte, classesListe, EtiquetteStatut, LIBELLE_STATUT, Tuile, Vide } from '@/components/ui'
-import { euros, total } from '@/lib/engine'
+import { cascade, euros, total } from '@/lib/engine'
 import { formatDate, libellePeriode, periodeDe } from '@/lib/dates'
 import { useStore } from '@/lib/store'
 import type { StatutCommission } from '@/lib/types'
@@ -42,7 +42,7 @@ export default function Commissions() {
   }, [commissions, commercialDe])
 
   function exporter() {
-    const entetes = ['Période', 'Commercial', 'Cabinet', 'Contrat', 'Montant', 'Statut', 'Payée le']
+    const entetes = ['Période', 'Commercial', 'Cabinet', 'Formule', 'Licences', 'Montant', 'Statut', 'Payée le']
     const lignes = groupes.flatMap(([periode, lot]) =>
       lot.map((c) => {
         const contrat = contratsParId.get(c.contratId)
@@ -52,6 +52,7 @@ export default function Commissions() {
           commercialDe(c.commercialId)?.nom ?? '',
           lead?.cabinet ?? '',
           contrat?.plan ?? '',
+          contrat ? String(cascade(contrat).licences) : '',
           c.montant.toFixed(2),
           LIBELLE_STATUT[c.statut],
           c.payeeLe ? formatDate(c.payeeLe) : '',
@@ -173,7 +174,9 @@ export default function Commissions() {
                           <tr key={c.id} className={c.statut === 'annulee' ? 'opacity-55' : ''}>
                             <td className="px-5 py-3 font-medium">{commercialDe(c.commercialId)?.nom}</td>
                             <td className="px-3 py-3 text-encre-2">{lead?.cabinet ?? '—'}</td>
-                            <td className="px-3 py-3 text-encre-2 capitalize">{contrat?.plan ?? '—'}</td>
+                            <td className="px-3 py-3 text-encre-2 capitalize">
+                              {contrat ? `${contrat.plan} · ${cascade(contrat).licences} lic.` : '—'}
+                            </td>
                             <td className="tabulaire px-3 py-3 text-right font-semibold">
                               {c.statut === 'annulee' ? <s>{euros(c.montant)}</s> : euros(c.montant)}
                             </td>

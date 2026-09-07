@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { cascade, echeancier, estActif, mrr, simuler, total } from './engine'
+import { cascade, echeancier, estActif, licencesActives, mrr, simuler, total } from './engine'
 import { REGLAGES_DEFAUT, type Contrat } from './types'
 
 const contrat = (p: Partial<Contrat> = {}): Contrat => ({
   id: 'c1',
   leadId: 'l1',
   plan: 'annuel',
+  licences: 1,
   prixCatalogue: 179,
   tauxRemise: 0.1,
   tauxCommission: 0.15,
@@ -40,6 +41,55 @@ describe('cascade de prix', () => {
     const c = cascade(contrat())
     expect(c.revenuTotal).toBe(1933.2)
     expect(c.coutTotal).toBe(504.84) // 12 x (17.90 de remise + 24.17 de commission)
+  })
+})
+
+describe('vente au poste', () => {
+  it('multiplie toute la cascade par le nombre de licences', () => {
+    const c = cascade(contrat({ licences: 3 }))
+    expect(c.licences).toBe(3)
+    expect(c.prixUnitaire).toBe(179)
+    expect(c.prixCatalogue).toBe(537)
+    expect(c.remise).toBe(53.7)
+    expect(c.prixPaye).toBe(483.3)
+    expect(c.commission).toBe(72.5)
+    expect(c.netAlyxa).toBe(410.8)
+  })
+
+  it('arrondit sur le total du contrat, pas licence par licence', () => {
+    // 3 x 24,17 donnerait 72,51 ; le cabinet paie 483,30 dont 15 % = 72,50.
+    expect(cascade(contrat({ licences: 3 })).commission).toBe(72.5)
+  })
+
+  it('applique la meme regle au mensuel', () => {
+    const c = cascade(contrat({ plan: 'mensuel', prixCatalogue: 224, moisEngagement: 1, licences: 3 }))
+    expect(c.prixPaye).toBe(604.8)
+    expect(c.commission).toBe(90.72)
+    expect(c.netAlyxa).toBe(514.08)
+  })
+
+  it('commissionne chaque licence sur toute la duree', () => {
+    const lignes = echeancier(contrat({ licences: 3 }), 'com1', REGLAGES_DEFAUT, [], new Date('2026-06-20T00:00:00.000Z'))
+    expect(lignes).toHaveLength(12)
+    expect(total(lignes, ['a_payer', 'prevue'])).toBe(870)
+  })
+
+  it('traite un contrat sans licence renseignee comme un poste unique', () => {
+    expect(cascade(contrat({ licences: 0 })).prixPaye).toBe(161.1)
+  })
+
+  it('compte les licences actives, hors contrats resilies', () => {
+    const maintenant = new Date('2026-06-20T00:00:00.000Z')
+    expect(
+      licencesActives(
+        [
+          contrat({ id: 'a', licences: 3 }),
+          contrat({ id: 'b', licences: 2 }),
+          contrat({ id: 'c', licences: 4, churnLe: '2026-03-01T00:00:00.000Z' }),
+        ],
+        maintenant,
+      ),
+    ).toBe(5)
   })
 })
 
@@ -129,6 +179,10 @@ describe('agregats', () => {
     expect(mrr([actif, resilie], maintenant)).toBe(161.1)
   })
 
+  it('additionne les licences dans le MRR', () => {
+    expect(mrr([contrat({ id: 'a', licences: 3 })], maintenant)).toBe(483.3)
+  })
+
   it('exclut les contrats a venir du MRR', () => {
     expect(mrr([contrat({ debutLe: '2026-09-01T00:00:00.000Z' })], maintenant)).toBe(0)
     expect(estActif(contrat({ debutLe: '2026-09-01T00:00:00.000Z' }), maintenant)).toBe(false)
@@ -139,5 +193,10 @@ describe('simulateur', () => {
   it('reprend la grille tarifaire Alyxa par defaut', () => {
     expect(simuler('annuel').prixPaye).toBe(161.1)
     expect(simuler('mensuel').prixPaye).toBe(201.6)
+  })
+
+  it('simule un cabinet a plusieurs postes', () => {
+    expect(simuler('annuel', 3).prixPaye).toBe(483.3)
+    expect(simuler('mensuel', 2).commission).toBe(60.48)
   })
 })

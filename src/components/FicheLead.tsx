@@ -1,17 +1,18 @@
 import { useState } from 'react'
-import { Check, Mail, MapPin, Phone, User } from 'lucide-react'
+import { Check, Mail, MapPin, Minus, Phone, Plus, User } from 'lucide-react'
 import { Bouton, EtiquetteStatut, Modale } from '@/components/ui'
 import { useStore } from '@/lib/store'
-import { cascade, euros, pourcent } from '@/lib/engine'
+import { cascade, centimes, euros, pourcent, simuler } from '@/lib/engine'
 import { formatDate, libellePeriode } from '@/lib/dates'
 import { ETAPES_ENTONNOIR, LIBELLE_ETAPE, type Etape, type Plan } from '@/lib/types'
 
 /** Fiche complete d'un lead : coordonnees, parcours, contrat et echeancier. */
 export default function FicheLead({ leadId, onFermer }: { leadId: string; onFermer: () => void }) {
-  const { leadDe, commercialDe, regionDe, contratDuLead, commissions, changerEtape, declarerChurn } =
+  const { leadDe, commercialDe, regionDe, contratDuLead, commissions, changerEtape, declarerChurn, majLicences } =
     useStore()
   const lead = leadDe(leadId)
   const [plan, setPlan] = useState<Plan>('annuel')
+  const [licences, setLicences] = useState(1)
 
   if (!lead) return null
 
@@ -20,6 +21,8 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
   const echeances = commissions.filter((c) => c.contratId === contrat?.id)
   const commercial = commercialDe(lead.commercialId)
   const clos = lead.etape === 'perdu' || lead.etape === 'churn'
+  // Apercu chiffre de ce que la signature declencherait, avant de cliquer.
+  const apercu = simuler(plan, licences)
 
   /** Etapes encore proposables : on n'avance jamais en arriere. */
   const indexActuel = ETAPES_ENTONNOIR.indexOf(lead.etape)
@@ -68,7 +71,8 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
           <section className="rounded-xl border border-bord">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-bord px-4 py-3">
               <h3 className="text-[13.5px] font-semibold">
-                Contrat {contrat.plan} · démarré le {formatDate(contrat.debutLe)}
+                Contrat {contrat.plan} · {detail.licences} licence
+                {detail.licences > 1 ? 's' : ''} · démarré le {formatDate(contrat.debutLe)}
               </h3>
               {contrat.churnLe ? (
                 <span className="rounded-full bg-[var(--color-critique-fond)] px-2.5 py-1 text-[12px] font-medium text-[#b02a2a]">
@@ -86,7 +90,12 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
 
             {/* Cascade de prix : d'ou vient chaque euro et ou il va. */}
             <div className="divide-y divide-bord text-[13.5px]">
-              <Ligne libelle="Prix catalogue Alyxa" valeur={euros(detail.prixCatalogue)} suffixe="/ mois" />
+              <Ligne libelle="Prix catalogue Alyxa" valeur={euros(detail.prixUnitaire)} suffixe="/ mois / licence" />
+              <Ligne
+                libelle={`× ${detail.licences} licence${detail.licences > 1 ? 's' : ''}`}
+                valeur={euros(detail.prixCatalogue)}
+                suffixe="/ mois"
+              />
               <Ligne
                 libelle={`Remise Septodont (${pourcent(contrat.tauxRemise)})`}
                 valeur={`− ${euros(detail.remise)}`}
@@ -102,6 +111,21 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
               />
               <Ligne libelle="Reste à Alyxa" valeur={euros(detail.netAlyxa)} suffixe="/ mois" fort ton="bien" />
             </div>
+
+            {!contrat.churnLe && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-bord px-4 py-3">
+                <div>
+                  <div className="text-[13px] font-semibold text-encre-2">Nombre de postes</div>
+                  <p className="text-[12px] text-encre-3">
+                    Le cabinet ouvre ou ferme un poste : les échéances déjà payées ne bougent pas.
+                  </p>
+                </div>
+                <Compteur
+                  valeur={detail.licences}
+                  onChange={(v) => majLicences(contrat.id, v)}
+                />
+              </div>
+            )}
 
             <div className="border-t border-bord px-4 py-3">
               <div className="mb-2.5 text-[13px] font-semibold text-encre-2">
@@ -130,6 +154,14 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
                 l’échéancier de commission du commercial.
               </p>
 
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-fond px-3.5 py-2.5">
+                <div>
+                  <span className="text-[12.5px] font-medium text-encre">Nombre de licences</span>
+                  <p className="text-[12px] text-encre-3">Une par praticien équipé dans le cabinet.</p>
+                </div>
+                <Compteur valeur={licences} onChange={setLicences} />
+              </div>
+
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="text-[12.5px] text-encre-2">Formule choisie :</span>
                 {(['annuel', 'mensuel'] as Plan[]).map((p) => (
@@ -143,8 +175,21 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
                     }`}
                   >
                     {p === 'annuel' ? 'Annuel — 179 €' : 'Mensuel — 224 €'}
+                    <span className="text-encre-3"> / licence</span>
                   </button>
                 ))}
+              </div>
+
+              <div className="mb-3 rounded-lg border border-dashed border-bord-fort px-3.5 py-2.5 text-[12.5px] text-encre-2">
+                Avec {licences} licence{licences > 1 ? 's' : ''} en {plan}, le cabinet paiera{' '}
+                <strong className="font-semibold text-encre">{euros(apercu.prixPaye)} / mois</strong>{' '}
+                et {commercial?.nom ?? 'le commercial'} touchera{' '}
+                <strong className="font-semibold text-encre">{euros(apercu.commission)} / mois</strong>{' '}
+                pendant {apercu.moisCommissionnes} mois, soit{' '}
+                <strong className="font-semibold text-encre">
+                  {euros(centimes(apercu.commission * apercu.moisCommissionnes))}
+                </strong>{' '}
+                au total.
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -152,7 +197,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
                   <Bouton
                     key={e}
                     variante={e === 'signe' ? 'primaire' : 'secondaire'}
-                    onClick={() => changerEtape(lead.id, e, { plan })}
+                    onClick={() => changerEtape(lead.id, e, { plan, licences })}
                   >
                     {e === 'signe' && <Check size={14} />}
                     {LIBELLE_ETAPE[e]}
@@ -199,6 +244,41 @@ function Ligne({
         {valeur}
         {suffixe && <span className="ml-1 text-[12px] font-normal text-encre-3">{suffixe}</span>}
       </span>
+    </div>
+  )
+}
+
+/** Selecteur de quantite, borne a 1 poste minimum. */
+function Compteur({
+  valeur,
+  onChange,
+  max = 20,
+}: {
+  valeur: number
+  onChange: (v: number) => void
+  max?: number
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-bord-fort bg-carte p-1">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(1, valeur - 1))}
+        disabled={valeur <= 1}
+        aria-label="Retirer une licence"
+        className="rounded-md p-1.5 text-encre-2 transition-colors hover:bg-fond disabled:opacity-30"
+      >
+        <Minus size={14} />
+      </button>
+      <span className="tabulaire w-8 text-center text-[14px] font-semibold">{valeur}</span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, valeur + 1))}
+        disabled={valeur >= max}
+        aria-label="Ajouter une licence"
+        className="rounded-md p-1.5 text-encre-2 transition-colors hover:bg-fond disabled:opacity-30"
+      >
+        <Plus size={14} />
+      </button>
     </div>
   )
 }

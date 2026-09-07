@@ -40,13 +40,15 @@ export default function Leads() {
   const filtreActif = etape !== TOUS || commercial !== TOUS || region !== TOUS || recherche !== ''
 
   function exporter() {
-    const entetes = ['Cabinet', 'Praticien', 'Email', 'Téléphone', 'Ville', 'CP', 'Région', 'Commercial', 'Étape', 'Reçu le', 'Formule', 'Prix payé']
+    const entetes = ['Cabinet', 'Praticien', 'Email', 'Téléphone', 'Ville', 'CP', 'Région', 'Commercial', 'Étape', 'Reçu le', 'Formule', 'Licences', 'Prix payé / mois']
     const lignes = filtres.map((l) => {
       const contrat = contratDuLead(l.id)
       return [
         l.cabinet, l.praticien, l.email, l.telephone, l.ville, l.codePostal,
         regionDe(l.regionId), commercialDe(l.commercialId)?.nom ?? '', LIBELLE_ETAPE[l.etape],
-        formatDate(l.recuLe), contrat?.plan ?? '', contrat ? cascade(contrat).prixPaye.toFixed(2) : '',
+        formatDate(l.recuLe), contrat?.plan ?? '',
+        contrat ? String(cascade(contrat).licences) : '',
+        contrat ? cascade(contrat).prixPaye.toFixed(2) : '',
       ]
     })
     const csv = [entetes, ...lignes]
@@ -170,7 +172,10 @@ export default function Leads() {
                           {contrat ? (
                             <>
                               <div className="font-medium">{euros(cascade(contrat).prixPaye)}</div>
-                              <div className="text-[12px] text-encre-3">{contrat.plan}</div>
+                              <div className="text-[12px] text-encre-3">
+                                {cascade(contrat).licences} licence
+                                {cascade(contrat).licences > 1 ? 's' : ''} · {contrat.plan}
+                              </div>
                             </>
                           ) : (
                             <span className="text-encre-3">—</span>

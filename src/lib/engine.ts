@@ -2,6 +2,9 @@
  * Moteur financier : c'est le seul endroit ou l'argent se calcule.
  *
  * Regle metier Septodont :
+ *   0. Alyxa se vend au poste : un cabinet souscrit autant de licences qu'il a
+ *      de praticiens. Tous les montants ci-dessous sont donc multiplies par le
+ *      nombre de licences du contrat.
  *   1. Le cabinet qui souscrit via Septodont beneficie de -10% sur le prix catalogue.
  *   2. Le commercial Septodont qui a apporte le lead touche 15% du prix REELLEMENT
  *      paye par le cabinet, chaque mois.
@@ -16,8 +19,18 @@ import { ajouterMois, moisEcoules, periodeDe, type Periode } from './dates'
 /** Arrondi au centime, pour que les totaux affiches soient les totaux payes. */
 export const centimes = (n: number): number => Math.round(n * 100) / 100
 
-/** Cascade de prix d'un contrat : catalogue -> remise -> commission -> net Alyxa. */
+/**
+ * Cascade de prix d'un contrat : catalogue -> remise -> commission -> net Alyxa.
+ *
+ * Tous les montants sont mensuels et portent sur le contrat ENTIER, licences
+ * comprises. `prixUnitaire` est le seul montant exprime par licence.
+ */
 export interface Cascade {
+  /** Nombre de postes souscrits. */
+  licences: number
+  /** Prix catalogue d'une seule licence. */
+  prixUnitaire: number
+  /** Prix catalogue du contrat entier : prixUnitaire x licences. */
   prixCatalogue: number
   remise: number
   prixPaye: number
@@ -31,12 +44,19 @@ export interface Cascade {
 }
 
 export function cascade(contrat: Contrat, plafondMois = REGLAGES_DEFAUT.plafondMois): Cascade {
-  const prixCatalogue = contrat.prixCatalogue
+  // Au moins une licence : un contrat sans poste n'existe pas.
+  const licences = Math.max(1, Math.round(contrat.licences ?? 1))
+  const prixUnitaire = contrat.prixCatalogue
+  // On arrondit une seule fois, sur le total du contrat : c'est le montant
+  // reellement facture au cabinet, pas une somme d'arrondis par licence.
+  const prixCatalogue = centimes(prixUnitaire * licences)
   const remise = centimes(prixCatalogue * contrat.tauxRemise)
   const prixPaye = centimes(prixCatalogue - remise)
   const commission = centimes(prixPaye * contrat.tauxCommission)
   const moisCommissionnes = Math.min(contrat.moisEngagement, plafondMois)
   return {
+    licences,
+    prixUnitaire,
     prixCatalogue,
     remise,
     prixPaye,
@@ -49,12 +69,17 @@ export function cascade(contrat: Contrat, plafondMois = REGLAGES_DEFAUT.plafondM
 }
 
 /** Simulation a la volee, sans contrat existant (utilisee par le simulateur). */
-export function simuler(plan: Plan, reglages: Reglages = REGLAGES_DEFAUT): Cascade {
+export function simuler(
+  plan: Plan,
+  licences = 1,
+  reglages: Reglages = REGLAGES_DEFAUT,
+): Cascade {
   return cascade(
     {
       id: 'sim',
       leadId: 'sim',
       plan,
+      licences,
       prixCatalogue: reglages.prixCatalogue[plan],
       tauxRemise: reglages.tauxRemise,
       tauxCommission: reglages.tauxCommission,
@@ -63,6 +88,13 @@ export function simuler(plan: Plan, reglages: Reglages = REGLAGES_DEFAUT): Casca
     },
     reglages.plafondMois,
   )
+}
+
+/** Nombre total de licences actives a une date donnee. */
+export function licencesActives(contrats: Contrat[], maintenant: Date = new Date()): number {
+  return contrats
+    .filter((c) => estActif(c, maintenant))
+    .reduce((t, c) => t + Math.max(1, Math.round(c.licences ?? 1)), 0)
 }
 
 /**

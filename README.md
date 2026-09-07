@@ -28,6 +28,9 @@ installation ni compte n'est nécessaire pour l'essayer.
 Elles sont implémentées à un seul endroit, `src/lib/engine.ts`, et couvertes
 par des tests.
 
+0. **Vente au poste** — une licence équipe un praticien. Un cabinet de 3
+   dentistes souscrit 3 licences : un seul lead, un seul contrat, trois fois le
+   montant. Tous les calculs ci-dessous portent sur le contrat entier.
 1. **Remise cabinet −10 %** — tout cabinet qui souscrit via Septodont paie 10 %
    de moins que le tarif public Alyxa.
 2. **Commission commerciale 15 %** — le commercial Septodont qui a apporté le
@@ -36,17 +39,22 @@ par des tests.
    (1 mois pour un abonnement mensuel, 12 mois pour un annuel), plafonnée à
    12 mois, et s'arrête immédiatement en cas de résiliation.
 
-Appliqué à la grille tarifaire Alyxa :
+Appliqué à la grille tarifaire Alyxa, pour **une licence** :
 
 | | Mensuel | Annuel |
 |---|---|---|
-| Prix catalogue | 224,00 € | 179,00 € |
+| Prix catalogue / licence | 224,00 € | 179,00 € |
 | Remise Septodont | − 22,40 € | − 17,90 € |
 | **Payé par le cabinet** | **201,60 €** | **161,10 €** |
 | Commission commerciale | − 30,24 € | − 24,17 € |
 | **Reste à Alyxa** | **171,36 €** | **136,93 €** |
 | Durée commissionnée | 1 mois | 12 mois |
 | **Commission totale** | **30,24 €** | **290,04 €** |
+
+Le même cabinet avec **3 licences en annuel** paie 483,30 €/mois (537 € − 10 %),
+dont 72,50 € de commission mensuelle, soit 870,00 € versés au commercial sur les
+12 mois. L'arrondi se fait une seule fois, sur le total du contrat : c'est le
+montant réellement facturé, pas une somme d'arrondis par licence.
 
 ## Architecture
 
@@ -68,7 +76,7 @@ supabase/
 
 Deux principes tiennent l'ensemble :
 
-**Les taux sont figés à la signature.** Un contrat mémorise le prix catalogue,
+**Les taux sont figés à la signature.** Un contrat mémorise le prix catalogue par licence,
 le taux de remise et le taux de commission en vigueur le jour où il est signé.
 Changer la grille demain ne réécrit jamais l'historique.
 

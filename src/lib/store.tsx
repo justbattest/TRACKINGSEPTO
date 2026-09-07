@@ -20,7 +20,7 @@ import {
   type Reglages,
 } from './types'
 
-const CLE_STOCKAGE = 'tracking-septo:v1'
+const CLE_STOCKAGE = 'tracking-septo:v2'
 
 interface EtatPersiste {
   leads: Lead[]
@@ -59,7 +59,9 @@ export interface Contexte extends EtatPersiste {
   leadDe: (id: string) => Lead | undefined
   contratDuLead: (leadId: string) => Contrat | undefined
   ajouterLead: (lead: Omit<Lead, 'id' | 'historique' | 'etape' | 'recuLe'>) => void
-  changerEtape: (leadId: string, etape: Etape, contrat?: { plan: Contrat['plan'] }) => void
+  changerEtape: (leadId: string, etape: Etape, contrat?: { plan: Contrat['plan']; licences?: number }) => void
+  /** Ajuste le nombre de postes d'un contrat (ouverture ou fermeture de poste). */
+  majLicences: (contratId: string, licences: number) => void
   declarerChurn: (contratId: string, date: string) => void
   basculerPaiement: (commission: Commission) => void
   payerPeriode: (periode: string) => void
@@ -139,12 +141,14 @@ export function Fournisseur({ children }: { children: ReactNode }) {
           // Passer un lead en "signé" cree son contrat, et donc son echeancier.
           if (etape === 'signe' && !contrats.some((c) => c.leadId === leadId)) {
             const plan = options?.plan ?? 'annuel'
+            const licences = Math.max(1, Math.round(options?.licences ?? 1))
             contrats = [
               ...contrats,
               {
                 id: `k${Date.now()}`,
                 leadId,
                 plan,
+                licences,
                 prixCatalogue: e.reglages.prixCatalogue[plan],
                 tauxRemise: e.reglages.tauxRemise,
                 tauxCommission: e.reglages.tauxCommission,
@@ -156,6 +160,14 @@ export function Fournisseur({ children }: { children: ReactNode }) {
           }
           return { ...e, leads, contrats }
         }),
+
+      majLicences: (contratId, licences) =>
+        modifier((e) => ({
+          ...e,
+          contrats: e.contrats.map((c) =>
+            c.id === contratId ? { ...c, licences: Math.max(1, Math.round(licences)) } : c,
+          ),
+        })),
 
       declarerChurn: (contratId, date) =>
         modifier((e) => {
