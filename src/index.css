@@ -1,0 +1,61 @@
+@import 'tailwindcss';
+
+/*
+ * Jetons de design. Une seule identite claire, assumee : outil metier lu
+ * toute la journee, on privilegie le calme et la lisibilite.
+ * Palette de series validee (contraste + daltonisme).
+ */
+@theme {
+  --color-encre: #16181d;
+  --color-encre-2: #565b66;
+  --color-encre-3: #8b909c;
+  --color-fond: #f6f7f9;
+  --color-carte: #ffffff;
+  --color-bord: #e5e7eb;
+  --color-bord-fort: #d1d5db;
+
+  --color-marque: #2a78d6;
+  --color-marque-fonce: #1c5cab;
+  --color-marque-clair: #eaf2fd;
+
+  --color-serie-1: #2a78d6;
+  --color-serie-2: #eb6834;
+  --color-serie-3: #1baf7a;
+
+  --color-bien: #1baf7a;
+  --color-bien-fond: #e6f7f1;
+  --color-attention: #eda100;
+  --color-attention-fond: #fdf4e0;
+  --color-critique: #e34948;
+  --color-critique-fond: #fdecec;
+  --color-neutre-fond: #f1f3f6;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--color-fond);
+  color: var(--color-encre);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Chiffres alignes en colonne dans les tableaux financiers. */
+.tabulaire {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d5d8de; border-radius: 6px; border: 3px solid var(--color-fond); }
+::-webkit-scrollbar-thumb:hover { background: #bcc0c8; }
+
+@keyframes apparition {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.apparition { animation: apparition 0.25s ease-out both; }
