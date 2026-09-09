@@ -7,12 +7,29 @@ import { LIBELLE_ORGANISATION, type Organisation } from '@/lib/types'
 
 type Ecran = 'chargement' | 'inscription' | 'connexion' | 'verifiez' | 'profil'
 
+/** Ce qu'on retient entre l'inscription et le retour depuis le mail de confirmation. */
+const CLE_BROUILLON = 'echange-septodont:inscription'
+
+interface Brouillon {
+  nom: string
+  maison: Organisation
+}
+
+function lireBrouillon(): Brouillon | null {
+  try {
+    const brut = localStorage.getItem(CLE_BROUILLON)
+    return brut ? (JSON.parse(brut) as Brouillon) : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Porte d'entree de l'outil.
  *
- * On arrive sur la creation de compte : c'est le cas le plus frequent quand on
- * recoit le lien pour la premiere fois. Une session sans profil bascule
- * directement sur l'ecran d'identite.
+ * Tout se demande sur un seul ecran : adresse, mot de passe, nom et equipe.
+ * Quand la confirmation d'adresse est desactivee — le cas normal pour un outil
+ * interne — on entre directement, sans deuxieme etape.
  */
 export default function Connexion() {
   const [ecran, setEcran] = useState<Ecran>('chargement')
@@ -25,12 +42,19 @@ export default function Connexion() {
   const [erreur, setErreur] = useState<string | null>(null)
   const [occupe, setOccupe] = useState(false)
 
+  // Une session deja ouverte mais sans profil : il ne manque que l'identite.
   useEffect(() => {
     let vivant = true
     void client()
       .auth.getSession()
       .then(({ data }) => {
-        if (vivant) setEcran(data.session ? 'profil' : 'inscription')
+        if (!vivant) return
+        const brouillon = lireBrouillon()
+        if (brouillon) {
+          setNom(brouillon.nom)
+          setMaison(brouillon.maison)
+        }
+        setEcran(data.session ? 'profil' : 'inscription')
       })
     return () => {
       vivant = false
@@ -45,22 +69,19 @@ export default function Connexion() {
     } catch (e) {
       const message = lisible(e)
       setErreur(message)
-      // Une adresse non reconnue : on propose alors le code d'acces.
+      // Une adresse hors des domaines reconnus : on propose le code d'acces.
       if (/pas reconnue|Accès refusé/i.test(message)) setCodeDemande(true)
     } finally {
       setOccupe(false)
     }
   }
 
-  const seConnecter = () =>
-    tenter(async () => {
-      const { error } = await client().auth.signInWithPassword({
-        email: email.trim(),
-        password: motDePasse,
-      })
-      if (error) throw error
-      setEcran('profil')
-    })
+  /** Cree le profil puis laisse le magasin recharger sur le changement de session. */
+  async function finaliser() {
+    await creerMonMembre(nom, maison, code)
+    localStorage.removeItem(CLE_BROUILLON)
+    await client().auth.refreshSession()
+  }
 
   const sInscrire = () =>
     tenter(async () => {
@@ -69,15 +90,44 @@ export default function Connexion() {
         password: motDePasse,
       })
       if (error) throw error
-      // Sans confirmation d'adresse, la session est ouverte immediatement.
-      setEcran(data.session ? 'profil' : 'verifiez')
+
+      if (data.session) {
+        // Confirmation d'adresse desactivee : on enchaine sans rien redemander.
+        await finaliser()
+        return
+      }
+      // Sinon on garde le nom et l'equipe pour ne pas les redemander au retour.
+      try {
+        localStorage.setItem(CLE_BROUILLON, JSON.stringify({ nom, maison }))
+      } catch {
+        // Stockage indisponible : la personne les ressaisira, sans plus.
+      }
+      setEcran('verifiez')
     })
 
-  const creerProfil = () =>
+  const seConnecter = () =>
     tenter(async () => {
-      await creerMonMembre(nom, maison, code)
-      // Le magasin recharge sur le changement d'etat d'authentification.
-      await client().auth.refreshSession()
+      const { error } = await client().auth.signInWithPassword({
+        email: email.trim(),
+        password: motDePasse,
+      })
+      if (error) throw error
+      // Le profil existe peut-etre deja : le magasin prendra le relais. Sinon,
+      // on le cree avec ce qui a ete saisi a l'inscription.
+      const brouillon = lireBrouillon()
+      if (brouillon && brouillon.nom.trim()) {
+        setNom(brouillon.nom)
+        setMaison(brouillon.maison)
+        try {
+          await creerMonMembre(brouillon.nom, brouillon.maison, code)
+          localStorage.removeItem(CLE_BROUILLON)
+          await client().auth.refreshSession()
+          return
+        } catch {
+          // Echec silencieux : l'ecran de profil prend le relais.
+        }
+      }
+      setEcran('profil')
     })
 
   if (ecran === 'chargement') {
@@ -98,7 +148,7 @@ export default function Connexion() {
         <p className="mt-2 text-center text-[13.5px] leading-relaxed text-encre-2">
           Un lien de confirmation vient d’être envoyé à{' '}
           <strong className="font-semibold text-encre">{email}</strong>. Cliquez dessus, puis
-          revenez ici pour vous connecter.
+          revenez ici pour vous connecter — votre nom et votre équipe sont déjà enregistrés.
         </p>
         <Bouton onClick={() => setEcran('connexion')} className="mt-5 w-full justify-center">
           Retour à la connexion
@@ -107,146 +157,128 @@ export default function Connexion() {
     )
   }
 
-  if (ecran === 'profil') {
-    return (
-      <Cadre>
-        <h1 className="text-[19px] font-semibold tracking-tight">Votre profil</h1>
-        <p className="mt-1.5 text-[13.5px] leading-relaxed text-encre-2">
-          Votre nom et votre couleur vous identifient dans les discussions sur les leads.
-        </p>
-
-        <form
-          className="mt-5 space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void creerProfil()
-          }}
-        >
-          <Champ label="Votre nom">
-            <input
-              autoFocus
-              required
-              value={nom}
-              onChange={(e) => setNom(e.target.value)}
-              placeholder="Prénom Nom"
-              className={classesSaisie}
-            />
-          </Champ>
-
-          <Champ
-            label="Votre équipe"
-            aide="Elle détermine le sens de lecture : ce que vous envoyez et ce que vous recevez."
-          >
-            <div className="flex gap-2">
-              {(['alyxa', 'septodont'] as Organisation[]).map((org) => (
-                <button
-                  key={org}
-                  type="button"
-                  onClick={() => setMaison(org)}
-                  aria-pressed={maison === org}
-                  className={`flex-1 rounded-lg border px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
-                    maison === org
-                      ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
-                      : 'border-bord-fort text-encre-2 hover:bg-fond'
-                  }`}
-                >
-                  {LIBELLE_ORGANISATION[org]}
-                </button>
-              ))}
-            </div>
-          </Champ>
-
-          {codeDemande && (
-            <Champ
-              label="Code d’accès"
-              aide="Votre adresse n’est pas sur un domaine reconnu. Demandez le code à votre contact."
-            >
-              <div className="relative">
-                <KeyRound size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3" />
-                <input
-                  autoFocus
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="ALYXA-SEPTO-XXXXXX"
-                  className={`${classesSaisie} pl-9 uppercase`}
-                />
-              </div>
-            </Champ>
-          )}
-
-          <Erreur message={erreur} />
-          <Bouton
-            type="submit"
-            variante="primaire"
-            disabled={occupe || !nom.trim()}
-            className="w-full justify-center py-2.5"
-          >
-            {occupe ? <Loader2 size={16} className="animate-spin" /> : 'Entrer'}
-          </Bouton>
-        </form>
-
-        <button
-          onClick={() => void client().auth.signOut().then(() => setEcran('connexion'))}
-          className="mt-4 w-full text-center text-[12.5px] text-encre-3 hover:text-encre-2 hover:underline"
-        >
-          Utiliser une autre adresse
-        </button>
-      </Cadre>
-    )
-  }
-
   const inscription = ecran === 'inscription'
+  const profil = ecran === 'profil'
 
   return (
     <Cadre>
       <h1 className="text-[19px] font-semibold tracking-tight">
-        {inscription ? 'Créer votre compte' : 'Connexion'}
+        {profil ? 'Votre profil' : inscription ? 'Créer votre compte' : 'Connexion'}
       </h1>
       <p className="mt-1.5 text-[13.5px] leading-relaxed text-encre-2">
-        {inscription
-          ? 'Le registre des leads échangés entre Alyxa et Septodont. Utilisez votre adresse professionnelle.'
-          : 'Content de vous revoir.'}
+        {profil
+          ? 'Dernière étape : votre nom et votre équipe.'
+          : inscription
+            ? 'Le registre des leads échangés entre Alyxa et Septodont.'
+            : 'Content de vous revoir.'}
       </p>
 
       <form
         className="mt-5 space-y-4"
         onSubmit={(e) => {
           e.preventDefault()
-          void (inscription ? sInscrire() : seConnecter())
+          void (profil ? tenter(finaliser) : inscription ? sInscrire() : seConnecter())
         }}
       >
-        <Champ label="Adresse email">
-          <input
-            autoFocus
-            required
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="prenom.nom@exemple.fr"
-            className={classesSaisie}
-          />
-        </Champ>
-        <Champ label="Mot de passe" aide={inscription ? '8 caractères minimum.' : undefined}>
-          <input
-            required
-            type="password"
-            minLength={8}
-            autoComplete={inscription ? 'new-password' : 'current-password'}
-            value={motDePasse}
-            onChange={(e) => setMotDePasse(e.target.value)}
-            className={classesSaisie}
-          />
-        </Champ>
+        {!profil && (
+          <>
+            <Champ label="Adresse email">
+              <input
+                autoFocus
+                required
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="prenom.nom@exemple.fr"
+                className={classesSaisie}
+              />
+            </Champ>
+            <Champ label="Mot de passe" aide={inscription ? '8 caractères minimum.' : undefined}>
+              <input
+                required
+                type="password"
+                minLength={8}
+                autoComplete={inscription ? 'new-password' : 'current-password'}
+                value={motDePasse}
+                onChange={(e) => setMotDePasse(e.target.value)}
+                className={classesSaisie}
+              />
+            </Champ>
+          </>
+        )}
+
+        {/* Nom et equipe : demandes des l'inscription, jamais deux fois. */}
+        {(inscription || profil) && (
+          <>
+            <Champ label="Votre nom">
+              <input
+                autoFocus={profil}
+                required
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+                placeholder="Prénom Nom"
+                className={classesSaisie}
+              />
+            </Champ>
+
+            <Champ
+              label="Votre équipe"
+              aide="Elle détermine le sens de lecture : ce que vous envoyez, ce que vous recevez."
+            >
+              <div className="flex gap-2">
+                {(['alyxa', 'septodont'] as Organisation[]).map((org) => (
+                  <button
+                    key={org}
+                    type="button"
+                    onClick={() => setMaison(org)}
+                    aria-pressed={maison === org}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
+                      maison === org
+                        ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
+                        : 'border-bord-fort text-encre-2 hover:bg-fond'
+                    }`}
+                  >
+                    {LIBELLE_ORGANISATION[org]}
+                  </button>
+                ))}
+              </div>
+            </Champ>
+
+            {codeDemande && (
+              <Champ
+                label="Code d’accès"
+                aide="Votre adresse n’est pas sur un domaine reconnu. Demandez le code à votre contact."
+              >
+                <div className="relative">
+                  <KeyRound
+                    size={15}
+                    className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3"
+                  />
+                  <input
+                    autoFocus
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="ALYXA-SEPTO-XXXXXX"
+                    className={`${classesSaisie} pl-9 uppercase`}
+                  />
+                </div>
+              </Champ>
+            )}
+          </>
+        )}
+
         <Erreur message={erreur} />
         <Bouton
           type="submit"
           variante="primaire"
-          disabled={occupe}
+          disabled={occupe || ((inscription || profil) && !nom.trim())}
           className="w-full justify-center py-2.5"
         >
           {occupe ? (
             <Loader2 size={16} className="animate-spin" />
+          ) : profil ? (
+            'Entrer'
           ) : inscription ? (
             'Créer mon compte'
           ) : (
@@ -258,11 +290,16 @@ export default function Connexion() {
       <button
         onClick={() => {
           setErreur(null)
-          setEcran(inscription ? 'connexion' : 'inscription')
+          if (profil) void client().auth.signOut().then(() => setEcran('connexion'))
+          else setEcran(inscription ? 'connexion' : 'inscription')
         }}
         className="mt-4 w-full text-center text-[12.5px] text-encre-2 hover:underline"
       >
-        {inscription ? 'J’ai déjà un compte' : 'Créer un compte'}
+        {profil
+          ? 'Utiliser une autre adresse'
+          : inscription
+            ? 'J’ai déjà un compte'
+            : 'Créer un compte'}
       </button>
     </Cadre>
   )
