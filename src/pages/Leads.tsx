@@ -1,96 +1,122 @@
 import { useMemo, useState } from 'react'
 import { Download, Plus, Search, X } from 'lucide-react'
 import Entete from '@/components/Entete'
-import { Bouton, Carte, Champ, classesListe, classesSaisie, EtiquetteEtape, Modale, Vide } from '@/components/ui'
-import FicheLead from '@/components/FicheLead'
+import FormulaireLead from '@/components/FormulaireLead'
+import {
+  Avatar,
+  Bouton,
+  Carte,
+  classesListe,
+  classesSaisie,
+  EtiquetteSens,
+  EtiquetteStatut,
+  Pastille,
+  Segments,
+  Vide,
+} from '@/components/ui'
 import { useStore } from '@/lib/store'
-import { formatDate } from '@/lib/dates'
+import { formatDate, ilYa } from '@/lib/dates'
 import { dateDuJour, telechargerCsv } from '@/lib/telecharger'
-import { cascade, euros } from '@/lib/engine'
-import { ETAPES, LIBELLE_ETAPE } from '@/lib/types'
+import {
+  dernierMouvement,
+  LIBELLE_SENS,
+  LIBELLE_STATUT,
+  nonLus,
+  STATUTS,
+  type Sens,
+} from '@/lib/types'
 
 const TOUS = 'tous'
+type FiltreSens = Sens | typeof TOUS
 
-export default function Leads() {
-  const store = useStore()
-  const { leads, commerciaux, regions, regionDe, commercialDe, contratDuLead } = store
+export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
+  const { leads, regions, membres, regionDe, membreDe, lectures, membreId } = useStore()
 
+  const [sens, setSens] = useState<FiltreSens>(TOUS)
   const [recherche, setRecherche] = useState('')
-  const [etape, setEtape] = useState<string>(TOUS)
-  const [commercial, setCommercial] = useState<string>(TOUS)
+  const [statut, setStatut] = useState<string>(TOUS)
   const [region, setRegion] = useState<string>(TOUS)
-  const [selection, setSelection] = useState<string | null>(null)
-  const [formulaire, setFormulaire] = useState(false)
+  const [transmetteur, setTransmetteur] = useState<string>(TOUS)
+  const [formulaire, setFormulaire] = useState<Sens | null>(null)
 
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase()
     return leads
-      .filter((l) => (etape === TOUS ? true : l.etape === etape))
-      .filter((l) => (commercial === TOUS ? true : l.commercialId === commercial))
+      .filter((l) => (sens === TOUS ? true : l.sens === sens))
+      .filter((l) => (statut === TOUS ? true : l.statut === statut))
       .filter((l) => (region === TOUS ? true : l.regionId === region))
+      .filter((l) => (transmetteur === TOUS ? true : l.transmisParId === transmetteur))
       .filter((l) =>
         q
-          ? [l.cabinet, l.praticien, l.ville, l.codePostal, l.email].some((v) =>
-              v.toLowerCase().includes(q),
+          ? [l.structure, l.contact, l.ville, l.codePostal, l.email, l.motif].some((v) =>
+              v?.toLowerCase().includes(q),
             )
           : true,
       )
-      .sort((a, b) => +new Date(b.recuLe) - +new Date(a.recuLe))
-  }, [leads, recherche, etape, commercial, region])
+      .sort((a, b) => +new Date(dernierMouvement(b)) - +new Date(dernierMouvement(a)))
+  }, [leads, sens, recherche, statut, region, transmetteur])
 
-  const filtreActif = etape !== TOUS || commercial !== TOUS || region !== TOUS || recherche !== ''
+  const filtreActif = statut !== TOUS || region !== TOUS || transmetteur !== TOUS || recherche !== ''
 
   function exporter() {
-    const entetes = ['Cabinet', 'Praticien', 'Email', 'Téléphone', 'Ville', 'CP', 'Région', 'Commercial', 'Étape', 'Reçu le', 'Formule', 'Licences', 'Prix payé / mois']
-    const lignes = filtres.map((l) => {
-      const contrat = contratDuLead(l.id)
-      const detail = contrat ? cascade(contrat) : null
-      return [
-        l.cabinet, l.praticien, l.email, l.telephone, l.ville, l.codePostal,
-        regionDe(l.regionId), commercialDe(l.commercialId)?.nom ?? '', LIBELLE_ETAPE[l.etape],
-        formatDate(l.recuLe), contrat?.plan ?? '',
-        detail ? String(detail.licences) : '',
-        detail ? detail.prixPaye.toFixed(2) : '',
-      ]
-    })
-    void telechargerCsv(`leads-septodont-${dateDuJour()}.csv`, [entetes, ...lignes])
+    const entetes = ['Sens', 'Structure', 'Contact', 'Téléphone', 'Email', 'Ville', 'CP', 'Région', 'Motif', 'Transmis par', 'Transmis le', 'Statut', 'Dernier échange', 'Messages']
+    const lignes = filtres.map((l) => [
+      LIBELLE_SENS[l.sens],
+      l.structure,
+      l.contact,
+      l.telephone,
+      l.email,
+      l.ville,
+      l.codePostal,
+      regionDe(l.regionId),
+      l.motif,
+      membreDe(l.transmisParId)?.nom ?? '',
+      formatDate(l.transmisLe),
+      LIBELLE_STATUT[l.statut],
+      formatDate(dernierMouvement(l)),
+      l.fil.filter((e) => e.type === 'message').length,
+    ])
+    void telechargerCsv(`echange-septodont-${dateDuJour()}.csv`, [entetes, ...lignes])
   }
 
   return (
     <>
-      <Entete titre="Leads" sous="Tous les cabinets transmis par Septodont, avec leur avancement.">
-        <div className="flex gap-2">
+      <Entete titre="Leads" sous="Tout ce qui circule entre Alyxa et Septodont, dans les deux sens.">
+        <div className="flex flex-wrap gap-2">
           <Bouton onClick={exporter}>
             <Download size={15} /> Exporter
           </Bouton>
-          <Bouton variante="primaire" onClick={() => setFormulaire(true)}>
-            <Plus size={15} /> Ajouter un lead
+          <Bouton variante="primaire" onClick={() => setFormulaire('envoye')}>
+            <Plus size={15} /> Nouveau lead
           </Bouton>
         </div>
       </Entete>
 
       <div className="space-y-4 px-6 py-6 lg:px-8">
-        {/* Tous les filtres sur une seule ligne, au-dessus du tableau. */}
+        <Segments<FiltreSens>
+          valeur={sens}
+          onChange={setSens}
+          options={[
+            { valeur: TOUS, libelle: 'Tous', compte: leads.length },
+            { valeur: 'recu', libelle: 'Reçus de Septodont', compte: leads.filter((l) => l.sens === 'recu').length },
+            { valeur: 'envoye', libelle: 'Envoyés à Septodont', compte: leads.filter((l) => l.sens === 'envoye').length },
+          ]}
+        />
+
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-56 flex-1">
             <Search size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3" />
             <input
               value={recherche}
               onChange={(e) => setRecherche(e.target.value)}
-              placeholder="Rechercher un cabinet, un praticien, une ville…"
+              placeholder="Rechercher une structure, un praticien, une ville…"
               className={`${classesSaisie} pl-9`}
             />
           </div>
-          <select value={etape} onChange={(e) => setEtape(e.target.value)} className={classesListe}>
-            <option value={TOUS}>Toutes les étapes</option>
-            {ETAPES.map((e) => (
-              <option key={e} value={e}>{LIBELLE_ETAPE[e]}</option>
-            ))}
-          </select>
-          <select value={commercial} onChange={(e) => setCommercial(e.target.value)} className={classesListe}>
-            <option value={TOUS}>Tous les commerciaux</option>
-            {commerciaux.map((c) => (
-              <option key={c.id} value={c.id}>{c.nom}</option>
+          <select value={statut} onChange={(e) => setStatut(e.target.value)} className={classesListe}>
+            <option value={TOUS}>Tous les statuts</option>
+            {STATUTS.map((s) => (
+              <option key={s} value={s}>{LIBELLE_STATUT[s]}</option>
             ))}
           </select>
           <select value={region} onChange={(e) => setRegion(e.target.value)} className={classesListe}>
@@ -99,14 +125,20 @@ export default function Leads() {
               <option key={r.id} value={r.id}>{r.nom}</option>
             ))}
           </select>
+          <select value={transmetteur} onChange={(e) => setTransmetteur(e.target.value)} className={classesListe}>
+            <option value={TOUS}>Transmis par tous</option>
+            {membres.map((m) => (
+              <option key={m.id} value={m.id}>{m.nom}</option>
+            ))}
+          </select>
           {filtreActif && (
             <Bouton
               variante="discret"
               onClick={() => {
                 setRecherche('')
-                setEtape(TOUS)
-                setCommercial(TOUS)
+                setStatut(TOUS)
                 setRegion(TOUS)
+                setTransmetteur(TOUS)
               }}
             >
               <X size={14} /> Réinitialiser
@@ -115,65 +147,76 @@ export default function Leads() {
         </div>
 
         <Carte>
-          <div className="flex items-center justify-between border-b border-bord px-5 py-3 text-[13px] text-encre-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bord px-5 py-3 text-[13px] text-encre-2">
             <span>
               <strong className="font-semibold text-encre">{filtres.length}</strong> lead
               {filtres.length > 1 ? 's' : ''}
-              {filtreActif && <span className="text-encre-3"> sur {leads.length}</span>}
+              {(filtreActif || sens !== TOUS) && <span className="text-encre-3"> sur {leads.length}</span>}
             </span>
-            <span className="text-[12px] text-encre-3">Cliquez sur une ligne pour ouvrir la fiche</span>
+            <span className="text-[12px] text-encre-3">
+              Cliquez sur une ligne pour ouvrir la fiche et la discussion
+            </span>
           </div>
 
           {filtres.length === 0 ? (
-            <Vide message="Aucun lead ne correspond à ces filtres." />
+            <Vide
+              message="Aucun lead ne correspond à ces filtres."
+              action={
+                <Bouton variante="primaire" onClick={() => setFormulaire('envoye')}>
+                  <Plus size={15} /> Ajouter un lead
+                </Bouton>
+              }
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13.5px]">
                 <thead className="border-b border-bord text-[12px] font-medium text-encre-3">
                   <tr>
-                    <th className="px-5 py-2.5 font-medium">Cabinet</th>
-                    <th className="px-3 py-2.5 font-medium">Praticien</th>
-                    <th className="px-3 py-2.5 font-medium">Région</th>
-                    <th className="px-3 py-2.5 font-medium">Commercial</th>
-                    <th className="px-3 py-2.5 font-medium">Reçu le</th>
-                    <th className="px-3 py-2.5 font-medium">Étape</th>
-                    <th className="px-5 py-2.5 text-right font-medium">Abonnement</th>
+                    <th className="px-5 py-2.5 font-medium">Structure</th>
+                    <th className="px-3 py-2.5 font-medium">Sens</th>
+                    <th className="px-3 py-2.5 font-medium">Motif</th>
+                    <th className="px-3 py-2.5 font-medium">Transmis par</th>
+                    <th className="px-3 py-2.5 font-medium">Statut</th>
+                    <th className="px-5 py-2.5 text-right font-medium">Dernier échange</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-bord">
                   {filtres.map((l) => {
-                    const contrat = contratDuLead(l.id)
+                    const attente = nonLus(l, lectures[l.id], membreId)
+                    const dernier = dernierMouvement(l)
                     return (
                       <tr
                         key={l.id}
-                        onClick={() => setSelection(l.id)}
+                        onClick={() => onOuvrirLead(l.id)}
                         className="cursor-pointer transition-colors hover:bg-fond"
                       >
                         <td className="px-5 py-3">
-                          <div className="font-medium">{l.cabinet}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={attente > 0 ? 'font-semibold' : 'font-medium'}>
+                              {l.structure}
+                            </span>
+                            <Pastille nombre={attente} />
+                          </div>
                           <div className="text-[12px] text-encre-3">
-                            {l.ville} · {l.codePostal}
+                            {l.contact} · {l.ville}
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-encre-2">{l.praticien}</td>
-                        <td className="px-3 py-3 text-encre-2">{regionDe(l.regionId)}</td>
-                        <td className="px-3 py-3 text-encre-2">{commercialDe(l.commercialId)?.nom}</td>
-                        <td className="tabulaire px-3 py-3 text-encre-2">{formatDate(l.recuLe)}</td>
                         <td className="px-3 py-3">
-                          <EtiquetteEtape etape={l.etape} />
+                          <EtiquetteSens sens={l.sens} />
                         </td>
-                        <td className="tabulaire px-5 py-3 text-right">
-                          {contrat ? (
-                            <>
-                              <div className="font-medium">{euros(cascade(contrat).prixPaye)}</div>
-                              <div className="text-[12px] text-encre-3">
-                                {cascade(contrat).licences} licence
-                                {cascade(contrat).licences > 1 ? 's' : ''} · {contrat.plan}
-                              </div>
-                            </>
-                          ) : (
-                            <span className="text-encre-3">—</span>
-                          )}
+                        <td className="px-3 py-3 text-encre-2">{l.motif}</td>
+                        <td className="px-3 py-3">
+                          <span className="flex items-center gap-2 text-encre-2">
+                            <Avatar membre={membreDe(l.transmisParId)} taille={22} titre />
+                            <span className="truncate">{membreDe(l.transmisParId)?.nom}</span>
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <EtiquetteStatut statut={l.statut} />
+                        </td>
+                        <td className="tabulaire px-5 py-3 text-right text-encre-2">
+                          {formatDate(dernier)}
+                          <div className="text-[12px] text-encre-3">{ilYa(dernier)}</div>
                         </td>
                       </tr>
                     )
@@ -185,94 +228,7 @@ export default function Leads() {
         </Carte>
       </div>
 
-      {selection && <FicheLead leadId={selection} onFermer={() => setSelection(null)} />}
-      {formulaire && <FormulaireLead onFermer={() => setFormulaire(false)} />}
+      {formulaire && <FormulaireLead sensInitial={formulaire} onFermer={() => setFormulaire(null)} />}
     </>
-  )
-}
-
-function FormulaireLead({ onFermer }: { onFermer: () => void }) {
-  const { commerciaux, regions, ajouterLead } = useStore()
-  const [valeurs, setValeurs] = useState({
-    cabinet: '',
-    praticien: '',
-    email: '',
-    telephone: '',
-    ville: '',
-    codePostal: '',
-    commercialId: commerciaux[0]?.id ?? '',
-    regionId: regions[0]?.id ?? '',
-  })
-
-  const maj = (cle: keyof typeof valeurs) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setValeurs((v) => {
-      const suivant = { ...v, [cle]: e.target.value }
-      // La region suit le commercial choisi, sauf modification explicite ensuite.
-      if (cle === 'commercialId') {
-        const com = commerciaux.find((c) => c.id === e.target.value)
-        if (com) suivant.regionId = com.regionId
-      }
-      return suivant
-    })
-
-  const complet = valeurs.cabinet.trim() && valeurs.praticien.trim() && valeurs.commercialId
-
-  return (
-    <Modale titre="Ajouter un lead" onFermer={onFermer}>
-      <form
-        className="space-y-4 px-6 py-5"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!complet) return
-          ajouterLead(valeurs)
-          onFermer()
-        }}
-      >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Champ label="Nom du cabinet *">
-            <input required value={valeurs.cabinet} onChange={maj('cabinet')} className={classesSaisie} placeholder="Cabinet dentaire du Port" />
-          </Champ>
-          <Champ label="Praticien *">
-            <input required value={valeurs.praticien} onChange={maj('praticien')} className={classesSaisie} placeholder="Dr Claire Lambert" />
-          </Champ>
-          <Champ label="Email">
-            <input type="email" value={valeurs.email} onChange={maj('email')} className={classesSaisie} placeholder="contact@cabinet.fr" />
-          </Champ>
-          <Champ label="Téléphone">
-            <input value={valeurs.telephone} onChange={maj('telephone')} className={classesSaisie} placeholder="04 91 00 00 00" />
-          </Champ>
-          <Champ label="Ville">
-            <input value={valeurs.ville} onChange={maj('ville')} className={classesSaisie} placeholder="Marseille" />
-          </Champ>
-          <Champ label="Code postal">
-            <input value={valeurs.codePostal} onChange={maj('codePostal')} className={classesSaisie} placeholder="13008" />
-          </Champ>
-          <Champ label="Commercial Septodont *">
-            <select required value={valeurs.commercialId} onChange={maj('commercialId')} className={classesSaisie}>
-              {commerciaux.map((c) => (
-                <option key={c.id} value={c.id}>{c.nom}</option>
-              ))}
-            </select>
-          </Champ>
-          <Champ label="Région">
-            <select value={valeurs.regionId} onChange={maj('regionId')} className={classesSaisie}>
-              {regions.map((r) => (
-                <option key={r.id} value={r.id}>{r.nom}</option>
-              ))}
-            </select>
-          </Champ>
-        </div>
-
-        <p className="rounded-lg bg-fond px-3.5 py-3 text-[12.5px] leading-relaxed text-encre-2">
-          Le lead est enregistré à l’étape <strong className="font-semibold">Nouveau</strong> et
-          horodaté. C’est cet horodatage qui fait foi si le volume envoyé est contesté.
-        </p>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Bouton type="button" onClick={onFermer}>Annuler</Bouton>
-          <Bouton type="submit" variante="primaire" disabled={!complet}>Enregistrer le lead</Bouton>
-        </div>
-      </form>
-    </Modale>
   )
 }

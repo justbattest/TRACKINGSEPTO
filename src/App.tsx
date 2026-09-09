@@ -1,43 +1,42 @@
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { BarChart3, BookOpen, Calculator, Coins, Users, Wallet } from 'lucide-react'
+import { useState } from 'react'
+import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { BarChart3, BookOpen, Repeat2, Users } from 'lucide-react'
 import Tableau from '@/pages/Tableau'
 import Leads from '@/pages/Leads'
-import Commerciaux from '@/pages/Commerciaux'
-import Commissions from '@/pages/Commissions'
-import Simulateur from '@/pages/Simulateur'
 import Guide from '@/pages/Guide'
-import Captation from '@/pages/Captation'
+import FicheLead from '@/components/FicheLead'
+import Identite from '@/components/Identite'
+import { Avatar, Pastille } from '@/components/ui'
+import { useStore } from '@/lib/store'
+import { leadsNonLus } from '@/lib/stats'
+import { LIBELLE_ORGANISATION } from '@/lib/types'
 
 const MENU = [
-  { to: '/', libelle: 'Tableau de bord', icone: BarChart3, aide: "Vue d'ensemble" },
-  { to: '/leads', libelle: 'Leads', icone: Users, aide: 'Les cabinets reçus' },
-  { to: '/commerciaux', libelle: 'Commerciaux', icone: Coins, aide: 'Qui apporte quoi' },
-  { to: '/commissions', libelle: 'Commissions', icone: Wallet, aide: 'Ce qu’on doit payer' },
-  { to: '/simulateur', libelle: 'Simulateur', icone: Calculator, aide: 'Tester un scénario' },
+  { to: '/', libelle: 'Tableau de bord', icone: BarChart3, aide: 'L’état de l’échange' },
+  { to: '/leads', libelle: 'Leads', icone: Repeat2, aide: 'Tout ce qui circule' },
   { to: '/guide', libelle: 'Guide', icone: BookOpen, aide: 'Comment ça marche' },
 ]
 
 export default function App() {
-  // Le formulaire public de captation s'affiche seul, sans la navigation interne.
-  const { pathname } = useLocation()
-  if (pathname.startsWith('/l/')) {
-    return (
-      <Routes>
-        <Route path="/l/:slug" element={<Captation />} />
-      </Routes>
-    )
-  }
+  const { moi, leads, lectures, membreId } = useStore()
+  const [leadOuvert, setLeadOuvert] = useState<string | null>(null)
+  const [changerCompte, setChangerCompte] = useState(false)
+
+  // Personne ne peut discuter sans nom : on demande l'identite avant tout.
+  if (!moi) return <Identite obligatoire />
+
+  const messagesEnAttente = leadsNonLus(leads, lectures, membreId).reduce((t, n) => t + n.nonLus, 0)
 
   return (
     <div className="flex min-h-screen">
       <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-bord bg-carte lg:flex">
         <div className="flex items-center gap-2.5 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-marque)] text-[15px] font-bold text-white">
-            A
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-marque)] text-white">
+            <Repeat2 size={18} />
           </div>
           <div className="leading-tight">
             <div className="text-[14px] font-semibold">Alyxa × Septodont</div>
-            <div className="text-[12px] text-encre-3">Suivi des leads</div>
+            <div className="text-[12px] text-encre-3">Échange de leads</div>
           </div>
         </div>
 
@@ -58,8 +57,11 @@ export default function App() {
               {({ isActive }) => (
                 <>
                   <Icone size={17} className="mt-0.5 shrink-0" />
-                  <span className="leading-tight">
-                    <span className="block text-[13.5px] font-medium">{libelle}</span>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="flex items-center gap-2 text-[13.5px] font-medium">
+                      {libelle}
+                      {to === '/leads' && <Pastille nombre={messagesEnAttente} />}
+                    </span>
                     <span className={`block text-[11.5px] ${isActive ? 'text-[var(--color-marque)]' : 'text-encre-3'}`}>
                       {aide}
                     </span>
@@ -70,11 +72,18 @@ export default function App() {
           ))}
         </div>
 
-        <div className="border-t border-bord px-5 py-4 text-[11.5px] leading-relaxed text-encre-3">
-          Remise cabinet <strong className="font-semibold text-encre-2">10 %</strong> · Commission
-          commercial <strong className="font-semibold text-encre-2">15 %</strong> · plafond{' '}
-          <strong className="font-semibold text-encre-2">12 mois</strong>
-        </div>
+        {/* Le compte courant : on voit tout de suite sous quelle identite on écrit. */}
+        <button
+          onClick={() => setChangerCompte(true)}
+          className="flex items-center gap-2.5 border-t border-bord px-4 py-3.5 text-left transition-colors hover:bg-fond"
+        >
+          <Avatar membre={moi} taille={32} />
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-[13px] font-medium">{moi.nom}</span>
+            <span className="block text-[11.5px] text-encre-3">{LIBELLE_ORGANISATION[moi.organisation]}</span>
+          </span>
+          <Users size={15} className="shrink-0 text-encre-3" />
+        </button>
       </nav>
 
       {/* Navigation compacte sur petits ecrans. */}
@@ -85,28 +94,40 @@ export default function App() {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10.5px] ${
+              `relative flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-[10.5px] ${
                 isActive ? 'text-[var(--color-marque)]' : 'text-encre-3'
               }`
             }
           >
             <Icone size={18} />
             {libelle}
+            {to === '/leads' && messagesEnAttente > 0 && (
+              <span className="absolute top-0.5 right-1">
+                <Pastille nombre={messagesEnAttente} />
+              </span>
+            )}
           </NavLink>
         ))}
+        <button
+          onClick={() => setChangerCompte(true)}
+          className="flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10.5px] text-encre-3"
+        >
+          <Avatar membre={moi} taille={18} />
+          Compte
+        </button>
       </nav>
 
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
         <Routes>
-          <Route path="/" element={<Tableau />} />
-          <Route path="/leads" element={<Leads />} />
-          <Route path="/commerciaux" element={<Commerciaux />} />
-          <Route path="/commissions" element={<Commissions />} />
-          <Route path="/simulateur" element={<Simulateur />} />
+          <Route path="/" element={<Tableau onOuvrirLead={setLeadOuvert} />} />
+          <Route path="/leads" element={<Leads onOuvrirLead={setLeadOuvert} />} />
           <Route path="/guide" element={<Guide />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+
+      {leadOuvert && <FicheLead leadId={leadOuvert} onFermer={() => setLeadOuvert(null)} />}
+      {changerCompte && <Identite onFermer={() => setChangerCompte(false)} />}
     </div>
   )
 }

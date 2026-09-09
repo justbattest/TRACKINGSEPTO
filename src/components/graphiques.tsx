@@ -2,13 +2,17 @@
 import type { ReactNode } from 'react'
 
 export const SERIES = {
-  s1: '#2a78d6', // bleu — mesure principale
-  s2: '#eb6834', // orange — ce qui sort (commissions)
-  s3: '#1baf7a', // vert d'eau — signatures
+  /** Leads reçus de Septodont. */
+  entrant: '#2a78d6',
+  /** Leads envoyés à Septodont. */
+  sortant: '#eb6834',
+  /** Mesure secondaire (conversions). */
+  appui: '#1baf7a',
 } as const
 
-/** Rampe ordinale bleue pour l'entonnoir (jamais plus clair que le palier 250). */
-export const RAMPE_ORDINALE = ['#86b6ef', '#6da7ec', '#3987e5', '#2a78d6', '#1c5cab']
+/** Rampes ordinales pour les entonnoirs (jamais plus clair que le palier 250). */
+export const RAMPE_ENTRANT = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab']
+export const RAMPE_SORTANT = ['#f5a986', '#f08b5d', '#eb6834', '#b8461c']
 
 export const AXE = {
   tick: { fill: '#8b909c', fontSize: 11.5 },

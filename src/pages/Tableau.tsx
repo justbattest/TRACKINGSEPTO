@@ -1,320 +1,334 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { AlertTriangle, ArrowRight, TrendingUp } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { ArrowDownLeft, ArrowUpRight, MessageSquare } from 'lucide-react'
 import Entete from '@/components/Entete'
-import { Carte, EtiquetteEtape, Tuile, Vide } from '@/components/ui'
-import { AXE, GRILLE, Infobulle, Legende, RAMPE_ORDINALE, SERIES } from '@/components/graphiques'
-import { entonnoir, leadsDormants, perfCommerciaux, perfRegions, serieMensuelle, tauxChurn } from '@/lib/agregats'
-import { euros, eurosCourt, licencesActives, margeMensuelle, mrr, pourcent, total } from '@/lib/engine'
-import { formatDate, libellePeriode, periodeDe } from '@/lib/dates'
-import { LIBELLE_ETAPE } from '@/lib/types'
+import { Avatar, Carte, EtiquetteSens, EtiquetteStatut, Pastille, Vide } from '@/components/ui'
+import { AXE, GRILLE, Infobulle, Legende, RAMPE_ENTRANT, RAMPE_SORTANT, SERIES } from '@/components/graphiques'
+import { bilan, entonnoir, equilibre, joursDepuis, leadsDormants, leadsNonLus, repartir, serieMensuelle, type Bilan } from '@/lib/stats'
+import { formatDate, libellePeriode } from '@/lib/dates'
 import { useStore } from '@/lib/store'
+import { dernierMouvement, LIBELLE_SENS, LIBELLE_STATUT, RESPONSABLE } from '@/lib/types'
 
-export default function Tableau() {
-  const { leads, contrats, commissions, commerciaux, regions, regionDe } = useStore()
-  const moisCourant = periodeDe(new Date())
+const pourcent = (n: number, d = 0) => `${(n * 100).toLocaleString('fr-FR', { maximumFractionDigits: d })} %`
 
-  const serie = useMemo(
-    () => serieMensuelle(leads, contrats, commissions),
-    [leads, contrats, commissions],
-  )
-  const etapes = useMemo(() => entonnoir(leads), [leads])
-  const commerciauxTries = useMemo(
-    () => perfCommerciaux(commerciaux, leads, contrats, commissions),
-    [commerciaux, leads, contrats, commissions],
-  )
-  const regionsTriees = useMemo(() => perfRegions(regions, leads, contrats), [regions, leads, contrats])
+export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
+  const { leads, lectures, membreId, membreDe, regionDe } = useStore()
+
+  const eq = useMemo(() => equilibre(leads), [leads])
+  const recus = useMemo(() => bilan(leads, 'recu'), [leads])
+  const envoyes = useMemo(() => bilan(leads, 'envoye'), [leads])
+  const serie = useMemo(() => serieMensuelle(leads), [leads])
   const dormants = useMemo(() => leadsDormants(leads), [leads])
-
-  const aPayer = total(commissions, ['a_payer'])
-  const aPayerCeMois = total(
-    commissions.filter((c) => c.periode === moisCourant),
-    ['a_payer'],
-  )
-  const revenuMensuel = mrr(contrats)
-  const marge = margeMensuelle(contrats)
-  const signes = etapes[etapes.length - 1].atteint
-  const licences = licencesActives(contrats)
-  const leadsDuMois = serie[serie.length - 1]?.leads ?? 0
-  const leadsMoisPrecedent = serie[serie.length - 2]?.leads ?? 0
+  const nonLus = useMemo(() => leadsNonLus(leads, lectures, membreId), [leads, lectures, membreId])
+  const motifs = useMemo(() => repartir(leads, (l) => l.motif).slice(0, 8), [leads])
 
   return (
     <>
       <Entete
         titre="Tableau de bord"
-        sous="Tout ce que Septodont nous rapporte, et tout ce qu’on leur doit, en un coup d’œil."
-      >
-        <div className="rounded-lg bg-[var(--color-marque-clair)] px-3.5 py-2 text-[12.5px] text-[var(--color-marque-fonce)]">
-          Mois en cours · <strong className="font-semibold">{libellePeriode(moisCourant)}</strong>
-        </div>
-      </Entete>
+        sous="L’état de l’échange avec Septodont : ce qui circule dans chaque sens, et ce que ça donne."
+      />
 
       <div className="space-y-6 px-6 py-6 lg:px-8">
-        {/* Les 4 chiffres qui repondent aux 4 questions du deal. */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <Tuile
-            libelle="Leads reçus au total"
-            valeur={String(leads.length)}
-            detail={`${leadsDuMois} ce mois-ci · ${leadsMoisPrecedent} le mois dernier`}
-          />
-          <Tuile
-            libelle="Cabinets signés"
-            valeur={String(signes)}
-            detail={`${pourcent(leads.length ? signes / leads.length : 0, 1)} des leads reçus`}
-          />
-          <Tuile
-            libelle="Licences actives"
-            valeur={String(licences)}
-            detail="Un poste de praticien équipé = une licence"
-          />
-          <Tuile
-            libelle="Revenu mensuel encaissé"
-            valeur={euros(revenuMensuel)}
-            detail={`dont ${euros(marge)} de marge après commissions`}
-            ton="bien"
-            icone={<TrendingUp size={14} />}
-          />
-          <Tuile
-            libelle="Commissions à payer"
-            valeur={euros(aPayer)}
-            detail={`dont ${euros(aPayerCeMois)} au titre de ${libellePeriode(moisCourant)}`}
-            ton="attention"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <Carte
-            titre="Leads reçus et signatures"
-            aide="Volume envoyé par Septodont chaque mois, et ce qui s’est transformé."
-            className="xl:col-span-2"
-            action={
-              <Legende
-                items={[
-                  { libelle: 'Leads reçus', couleur: SERIES.s1 },
-                  { libelle: 'Signatures', couleur: SERIES.s3 },
-                ]}
-              />
-            }
-          >
-            <div className="px-3 pt-5 pb-3">
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={serie} barGap={2} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...GRILLE} />
-                  <XAxis dataKey="periode" tickFormatter={libellePeriode} {...AXE} />
-                  <YAxis width={34} allowDecimals={false} {...AXE} />
-                  <Tooltip
-                    cursor={{ fill: '#f2f4f7' }}
-                    content={({ active, payload, label }) => (
-                      <Infobulle
-                        actif={active && !!payload?.length}
-                        titre={libellePeriode(String(label))}
-                        lignes={[
-                          { libelle: 'Leads reçus', valeur: String(payload?.[0]?.value ?? 0), couleur: SERIES.s1 },
-                          { libelle: 'Signatures', valeur: String(payload?.[1]?.value ?? 0), couleur: SERIES.s3 },
-                        ]}
-                      />
-                    )}
-                  />
-                  <Bar dataKey="leads" fill={SERIES.s1} radius={[4, 4, 0, 0]} maxBarSize={26} />
-                  <Bar dataKey="signatures" fill={SERIES.s3} radius={[4, 4, 0, 0]} maxBarSize={26} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Carte>
-
-          <Carte titre="Entonnoir" aide="Où les leads décrochent, depuis le début.">
-            <div className="space-y-3.5 px-5 py-5">
-              {etapes.map((e, i) => (
-                <div key={e.etape}>
-                  <div className="mb-1.5 flex items-baseline justify-between text-[13px]">
-                    <span className="font-medium text-encre">{LIBELLE_ETAPE[e.etape]}</span>
-                    <span className="tabulaire text-encre-2">
-                      <strong className="font-semibold text-encre">{e.atteint}</strong>{' '}
-                      <span className="text-encre-3">· {pourcent(e.taux)}</span>
-                    </span>
-                  </div>
-                  <div className="h-2.5 overflow-hidden rounded-full bg-[var(--color-neutre-fond)]">
-                    <div
-                      className="h-full rounded-full transition-[width] duration-500"
-                      style={{ width: `${Math.max(e.taux * 100, 1.5)}%`, background: RAMPE_ORDINALE[i] }}
-                    />
-                  </div>
+        {/* L'equilibre : la question centrale d'un echange reciproque. */}
+        <Carte
+          titre="L’équilibre de l’échange"
+          aide="Un partenariat sain, c’est un flux qui va dans les deux sens."
+        >
+          <div className="px-5 py-5">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-sortant-fonce)]">
+                  <ArrowUpRight size={15} /> On envoie
                 </div>
-              ))}
+                <div className="tabulaire mt-1 text-[30px] leading-none font-semibold text-[var(--color-sortant)]">
+                  {eq.envoyes}
+                </div>
+              </div>
+              <div className="pb-1 text-center text-[12.5px] text-encre-2">
+                {eq.ecart === 0 ? (
+                  <span className="rounded-full bg-[var(--color-bien-fond)] px-3 py-1 font-medium text-[#0f7a55]">
+                    Parfaitement équilibré
+                  </span>
+                ) : (
+                  <span>
+                    {eq.ecart > 0 ? 'On envoie' : 'On reçoit'}{' '}
+                    <strong className="font-semibold text-encre">{Math.abs(eq.ecart)}</strong> lead
+                    {Math.abs(eq.ecart) > 1 ? 's' : ''} de plus
+                  </span>
+                )}
+              </div>
+              <div className="text-right">
+                <div className="flex items-center justify-end gap-1.5 text-[13px] font-medium text-[var(--color-entrant-fonce)]">
+                  On reçoit <ArrowDownLeft size={15} />
+                </div>
+                <div className="tabulaire mt-1 text-[30px] leading-none font-semibold text-[var(--color-entrant)]">
+                  {eq.recus}
+                </div>
+              </div>
             </div>
-          </Carte>
+
+            {/* Une seule barre, deux parts : on lit le desequilibre d'un coup d'oeil. */}
+            <div className="mt-4 flex h-3 gap-0.5 overflow-hidden rounded-full">
+              <div
+                className="rounded-l-full bg-[var(--color-sortant)] transition-[width] duration-500"
+                style={{ width: `${eq.partEnvoyee * 100}%` }}
+              />
+              <div
+                className="flex-1 rounded-r-full bg-[var(--color-entrant)] transition-[width] duration-500"
+              />
+            </div>
+            <div className="mt-2 flex justify-between text-[11.5px] text-encre-3">
+              <span>{pourcent(eq.partEnvoyee)} envoyés par Alyxa</span>
+              <span>{pourcent(1 - eq.partEnvoyee)} reçus de Septodont</span>
+            </div>
+          </div>
+        </Carte>
+
+        {/* Le miroir : le meme bilan des deux cotes, cote a cote. */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <ColonneBilan bilan={envoyes} leads={leads} />
+          <ColonneBilan bilan={recus} leads={leads} />
         </div>
 
         <Carte
-          titre="Où part l’argent, mois par mois"
-          aide="Ce que les cabinets nous versent, remise déduite, séparé en ce qui reste chez Alyxa et ce qui repart chez Septodont."
+          titre="Le flux mois par mois"
+          aide="Le rythme de l’échange, dans les deux sens."
           action={
             <Legende
               items={[
-                { libelle: 'Marge Alyxa', couleur: SERIES.s1 },
-                { libelle: 'Commissions Septodont', couleur: SERIES.s2 },
+                { libelle: 'Envoyés à Septodont', couleur: SERIES.sortant },
+                { libelle: 'Reçus de Septodont', couleur: SERIES.entrant },
               ]}
             />
           }
         >
           <div className="px-3 pt-5 pb-3">
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={serie} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={serie} barGap={3} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid {...GRILLE} />
                 <XAxis dataKey="periode" tickFormatter={libellePeriode} {...AXE} />
-                <YAxis width={54} tickFormatter={(v) => eurosCourt(Number(v))} {...AXE} />
+                <YAxis width={34} allowDecimals={false} {...AXE} />
                 <Tooltip
                   cursor={{ fill: '#f2f4f7' }}
                   content={({ active, payload, label }) => {
-                    const ligne = payload?.[0]?.payload as { encaisse: number; net: number; commission: number } | undefined
+                    const p = payload?.[0]?.payload as { envoyes: number; recus: number } | undefined
                     return (
                       <Infobulle
-                        actif={active && !!ligne}
+                        actif={active && !!p}
                         titre={libellePeriode(String(label))}
                         lignes={[
-                          { libelle: 'Encaissé', valeur: euros(ligne?.encaisse ?? 0) },
-                          { libelle: 'Marge Alyxa', valeur: euros(ligne?.net ?? 0), couleur: SERIES.s1 },
-                          { libelle: 'Commissions', valeur: euros(ligne?.commission ?? 0), couleur: SERIES.s2 },
+                          { libelle: 'Envoyés', valeur: String(p?.envoyes ?? 0), couleur: SERIES.sortant },
+                          { libelle: 'Reçus', valeur: String(p?.recus ?? 0), couleur: SERIES.entrant },
+                          { libelle: 'Total', valeur: String((p?.envoyes ?? 0) + (p?.recus ?? 0)) },
                         ]}
                       />
                     )
                   }}
                 />
-                {/* Empile marge + commission : la hauteur totale est l'encaissement du mois. */}
-                <Bar dataKey="net" stackId="a" fill={SERIES.s1} maxBarSize={36} />
-                <Bar dataKey="commission" stackId="a" fill={SERIES.s2} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                <Bar dataKey="envoyes" fill={SERIES.sortant} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={false} />
+                <Bar dataKey="recus" fill={SERIES.entrant} radius={[4, 4, 0, 0]} maxBarSize={30} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </Carte>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
           <Carte
-            titre="Meilleurs commerciaux"
-            aide="Classés par revenu mensuel réellement apporté."
-            action={
-              <Link
-                to="/commerciaux"
-                className="flex items-center gap-1 text-[12.5px] font-medium text-[var(--color-marque)] hover:underline"
-              >
-                Tout voir <ArrowRight size={13} />
-              </Link>
-            }
+            titre="Discussions à lire"
+            aide="Les leads où l’autre équipe vous a écrit."
+            action={<Pastille nombre={nonLus.reduce((t, n) => t + n.nonLus, 0)} />}
           >
-            <div className="divide-y divide-bord">
-              {commerciauxTries.slice(0, 5).map((p, i) => (
-                <div key={p.commercial.id} className="flex items-center gap-3 px-5 py-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-fond text-[11.5px] font-semibold text-encre-2">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13.5px] font-medium">{p.commercial.nom}</div>
-                    <div className="text-[12px] text-encre-3">
-                      {regionDe(p.commercial.regionId)} · {p.leads} leads · {p.signatures} signés ·{' '}
-                      {p.licencesApportees} licence{p.licencesApportees > 1 ? 's' : ''}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="tabulaire text-[13.5px] font-semibold">{euros(p.mrrApporte)}</div>
-                    <div className="text-[11.5px] text-encre-3">par mois</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {nonLus.length === 0 ? (
+              <Vide message="Vous êtes à jour. Aucun message en attente." />
+            ) : (
+              <div className="divide-y divide-bord">
+                {nonLus.slice(0, 6).map(({ lead, nonLus: n }) => {
+                  const dernierMessage = [...lead.fil].reverse().find((e) => e.type === 'message')
+                  return (
+                    <button
+                      key={lead.id}
+                      onClick={() => onOuvrirLead(lead.id)}
+                      className="flex w-full gap-3 px-5 py-3 text-left transition-colors hover:bg-fond"
+                    >
+                      <Avatar membre={membreDe(dernierMessage?.auteurId ?? '')} taille={30} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate text-[13.5px] font-semibold">{lead.structure}</span>
+                          <Pastille nombre={n} />
+                        </span>
+                        <span className="mt-0.5 block truncate text-[12.5px] text-encre-2">
+                          {dernierMessage?.texte}
+                        </span>
+                      </span>
+                      <MessageSquare size={15} className="mt-1 shrink-0 text-encre-3" />
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </Carte>
 
-          <Carte titre="Performance par région" aide="Volume reçu et taux de transformation.">
-            <div className="px-3 pt-4 pb-3">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart
-                  data={regionsTriees}
-                  layout="vertical"
-                  margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid stroke="#eef0f3" horizontal={false} />
-                  <XAxis type="number" allowDecimals={false} {...AXE} />
-                  <YAxis type="category" dataKey="nom" width={140} {...AXE} />
-                  <Tooltip
-                    cursor={{ fill: '#f2f4f7' }}
-                    content={({ active, payload }) => {
-                      const r = payload?.[0]?.payload as { nom: string; leads: number; signatures: number; licences: number; tauxConversion: number; mrrApporte: number } | undefined
-                      return (
-                        <Infobulle
-                          actif={active && !!r}
-                          titre={r?.nom}
-                          lignes={[
-                            { libelle: 'Leads reçus', valeur: String(r?.leads ?? 0) },
-                            { libelle: 'Signés', valeur: String(r?.signatures ?? 0) },
-                            { libelle: 'Licences actives', valeur: String(r?.licences ?? 0) },
-                            { libelle: 'Conversion', valeur: pourcent(r?.tauxConversion ?? 0, 1) },
-                            { libelle: 'Revenu mensuel', valeur: euros(r?.mrrApporte ?? 0) },
-                          ]}
-                        />
-                      )
-                    }}
-                  />
-                  <Bar dataKey="leads" radius={[0, 4, 4, 0]} maxBarSize={18}>
-                    {regionsTriees.map((r) => (
-                      <Cell key={r.regionId} fill={SERIES.s1} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          <Carte
+            titre="Sans nouvelles depuis plus de 7 jours"
+            aide="Les leads ouverts qui n’ont bougé ni d’un côté ni de l’autre."
+            action={
+              <span className="rounded-full bg-[var(--color-attention-fond)] px-2.5 py-1 text-[12px] font-medium text-[#9a6a00]">
+                {dormants.length}
+              </span>
+            }
+          >
+            {dormants.length === 0 ? (
+              <Vide message="Tout est suivi. Rien ne dort." />
+            ) : (
+              <div className="divide-y divide-bord">
+                {dormants.slice(0, 6).map((l) => (
+                  <button
+                    key={l.id}
+                    onClick={() => onOuvrirLead(l.id)}
+                    className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 text-left transition-colors hover:bg-fond"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-medium">{l.structure}</span>
+                      <span className="block text-[12px] text-encre-3">
+                        {l.ville} · {regionDe(l.regionId)} · chez {RESPONSABLE[l.sens]}
+                      </span>
+                    </span>
+                    <EtiquetteSens sens={l.sens} />
+                    <EtiquetteStatut statut={l.statut} />
+                    <span className="tabulaire w-20 text-right text-[12.5px] text-encre-2">
+                      {joursDepuis(dernierMouvement(l))} j
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </Carte>
         </div>
 
-        <Carte
-          titre="À traiter en priorité"
-          aide="Leads sans aucun mouvement depuis plus de 7 jours. C’est ici qu’on perd de l’argent."
-          action={
-            <span className="rounded-full bg-[var(--color-attention-fond)] px-2.5 py-1 text-[12px] font-medium text-[#9a6a00]">
-              {dormants.length} en attente
-            </span>
-          }
-        >
-          {dormants.length === 0 ? (
-            <Vide message="Aucun lead en souffrance. Tout est suivi." />
-          ) : (
-            <div className="divide-y divide-bord">
-              {dormants.slice(0, 6).map((l) => {
-                const dernier = l.historique[l.historique.length - 1].date
-                const jours = Math.floor((Date.now() - +new Date(dernier)) / 86400000)
-                return (
-                  <div key={l.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                    <AlertTriangle size={15} className="shrink-0 text-[var(--color-attention)]" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13.5px] font-medium">{l.cabinet}</div>
-                      <div className="text-[12px] text-encre-3">
-                        {l.praticien} · {l.ville} · reçu le {formatDate(l.recuLe)}
-                      </div>
-                    </div>
-                    <EtiquetteEtape etape={l.etape} />
-                    <span className="tabulaire w-24 text-right text-[12.5px] text-encre-2">
-                      {jours} jours
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+        <Carte titre="Pourquoi les leads circulent" aide="Les motifs les plus fréquents, tous sens confondus.">
+          <div className="space-y-3 px-5 py-5">
+            {motifs.map((m) => (
+              <div key={m.cle}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[13px]">
+                  <span className="truncate font-medium text-encre">{m.cle}</span>
+                  <span className="tabulaire shrink-0 text-encre-2">
+                    <strong className="font-semibold text-encre">{m.total}</strong>
+                    <span className="text-encre-3"> · {m.convertis} converti{m.convertis > 1 ? 's' : ''}</span>
+                  </span>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-[var(--color-neutre-fond)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-marque)] transition-[width] duration-500"
+                    style={{ width: `${(m.total / (motifs[0]?.total || 1)) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
         </Carte>
 
         <p className="pb-2 text-center text-[12px] text-encre-3">
-          Taux de résiliation observé sur les contrats de plus de 3 mois :{' '}
-          <strong className="font-semibold text-encre-2">{pourcent(tauxChurn(contrats), 1)}</strong>
+          {leads.length} leads échangés depuis le début du partenariat · dernier mouvement le{' '}
+          {formatDate(
+            leads.reduce(
+              (recent, l) => (dernierMouvement(l) > recent ? dernierMouvement(l) : recent),
+              leads[0] ? dernierMouvement(leads[0]) : new Date().toISOString(),
+            ),
+          )}
         </p>
       </div>
     </>
+  )
+}
+
+/** Bilan d'un sens : le meme bloc a gauche et a droite, pour comparer d'un regard. */
+function ColonneBilan({ bilan: b, leads }: { bilan: Bilan; leads: import('@/lib/types').Lead[] }) {
+  const sortant = b.sens === 'envoye'
+  const etapes = useMemo(() => entonnoir(leads.filter((l) => l.sens === b.sens)), [leads, b.sens])
+  const rampe = sortant ? RAMPE_SORTANT : RAMPE_ENTRANT
+  const accent = sortant ? 'var(--color-sortant)' : 'var(--color-entrant)'
+  const evolution = b.ceMois - b.moisPrecedent
+
+  return (
+    <Carte>
+      <header className="flex items-start justify-between gap-3 border-b border-bord px-5 py-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
+            {sortant ? <ArrowUpRight size={17} style={{ color: accent }} /> : <ArrowDownLeft size={17} style={{ color: accent }} />}
+            {LIBELLE_SENS[b.sens]}
+          </h2>
+          <p className="mt-0.5 text-[13px] text-encre-2">
+            Suivi par {RESPONSABLE[b.sens]}
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="tabulaire text-[24px] leading-none font-semibold" style={{ color: accent }}>
+            {b.total}
+          </div>
+          <div className="text-[11.5px] text-encre-3">au total</div>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-3 gap-px bg-bord">
+        <Mesure libelle="Ce mois-ci" valeur={String(b.ceMois)} detail={evolutionTexte(evolution)} />
+        <Mesure
+          libelle="Convertis"
+          valeur={String(b.convertis)}
+          detail={`${pourcent(b.tauxConversion, 1)} des leads`}
+        />
+        <Mesure
+          libelle="Délai de contact"
+          valeur={b.delaiMedianContact === null ? '—' : `${b.delaiMedianContact} j`}
+          detail="médiane"
+        />
+      </div>
+
+      <div className="space-y-2.5 px-5 py-4">
+        {etapes.map((e, i) => (
+          <div key={e.statut}>
+            <div className="mb-1 flex items-baseline justify-between text-[12.5px]">
+              <span className="text-encre-2">{LIBELLE_STATUT[e.statut]}</span>
+              <span className="tabulaire text-encre-2">
+                <strong className="font-semibold text-encre">{e.atteint}</strong>
+                <span className="text-encre-3"> · {pourcent(e.taux)}</span>
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--color-neutre-fond)]">
+              <div
+                className="h-full rounded-full transition-[width] duration-500"
+                style={{ width: `${Math.max(e.taux * 100, 1.5)}%`, background: rampe[i] }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-bord px-5 py-3 text-[12px] text-encre-3">
+        {b.enAttente > 0 ? (
+          <>
+            <strong className="font-semibold text-[var(--color-attention)]">{b.enAttente}</strong> en
+            attente de prise en charge · {b.enCours} en cours · {b.sansSuite} sans suite
+          </>
+        ) : (
+          <>Tous pris en charge · {b.enCours} en cours · {b.sansSuite} sans suite</>
+        )}
+      </div>
+    </Carte>
+  )
+}
+
+function evolutionTexte(delta: number): string {
+  if (delta === 0) return 'stable vs mois dernier'
+  return `${delta > 0 ? '+' : '−'}${Math.abs(delta)} vs mois dernier`
+}
+
+function Mesure({ libelle, valeur, detail }: { libelle: string; valeur: string; detail: string }) {
+  return (
+    <div className="bg-carte px-4 py-3">
+      <div className="text-[11.5px] text-encre-3">{libelle}</div>
+      <div className="tabulaire mt-0.5 text-[19px] font-semibold">{valeur}</div>
+      <div className="mt-0.5 text-[11px] leading-tight text-encre-3">{detail}</div>
+    </div>
   )
 }

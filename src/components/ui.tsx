@@ -1,7 +1,7 @@
 /** Briques d'interface partagees par toutes les pages. */
-import { X } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { LIBELLE_ETAPE, type Etape, type StatutCommission } from '@/lib/types'
+import { initiales, LIBELLE_SENS_COURT, LIBELLE_STATUT, type Sens, type Statut } from '@/lib/types'
 
 export function Carte({
   titre,
@@ -19,7 +19,7 @@ export function Carte({
   return (
     <section className={`rounded-xl border border-bord bg-carte ${className}`}>
       {titre && (
-        <header className="flex items-start justify-between gap-4 border-b border-bord px-5 py-4">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-bord px-5 py-4">
           <div>
             <h2 className="text-[15px] font-semibold text-encre">{titre}</h2>
             {aide && <p className="mt-0.5 text-[13px] text-encre-2">{aide}</p>}
@@ -32,10 +32,6 @@ export function Carte({
   )
 }
 
-/**
- * Tuile de chiffre-cle. `ton` teinte la valeur quand elle porte un jugement
- * (de l'argent a sortir, un signal negatif) ; sinon on reste en encre neutre.
- */
 export function Tuile({
   libelle,
   valeur,
@@ -46,14 +42,15 @@ export function Tuile({
   libelle: string
   valeur: string
   detail?: string
-  ton?: 'neutre' | 'bien' | 'attention' | 'critique'
+  ton?: 'neutre' | 'bien' | 'attention' | 'entrant' | 'sortant'
   icone?: ReactNode
 }) {
   const tons = {
     neutre: 'text-encre',
     bien: 'text-[var(--color-bien)]',
     attention: 'text-[var(--color-attention)]',
-    critique: 'text-[var(--color-critique)]',
+    entrant: 'text-[var(--color-entrant)]',
+    sortant: 'text-[var(--color-sortant)]',
   }
   return (
     <div className="rounded-xl border border-bord bg-carte px-5 py-4">
@@ -64,47 +61,44 @@ export function Tuile({
       <div className={`tabulaire mt-2 text-[26px] leading-none font-semibold tracking-tight ${tons[ton]}`}>
         {valeur}
       </div>
-      {detail && <div className="mt-2 text-[12.5px] text-encre-3">{detail}</div>}
+      {detail && <div className="mt-2 text-[12.5px] leading-snug text-encre-3">{detail}</div>}
     </div>
   )
 }
 
-const TONS_ETAPE: Record<Etape, string> = {
-  nouveau: 'bg-[var(--color-neutre-fond)] text-encre-2',
+const TONS_STATUT: Record<Statut, string> = {
+  transmis: 'bg-[var(--color-neutre-fond)] text-encre-2',
   contacte: 'bg-[#eef2ff] text-[#4338ca]',
-  demo_planifiee: 'bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]',
-  demo_faite: 'bg-[#fdf4e0] text-[#9a6a00]',
-  signe: 'bg-[var(--color-bien-fond)] text-[#0f7a55]',
-  churn: 'bg-[var(--color-critique-fond)] text-[#b02a2a]',
-  perdu: 'bg-[var(--color-neutre-fond)] text-encre-3',
+  rdv: 'bg-[var(--color-attention-fond)] text-[#9a6a00]',
+  converti: 'bg-[var(--color-bien-fond)] text-[#0f7a55]',
+  sans_suite: 'bg-[var(--color-neutre-fond)] text-encre-3',
 }
 
-export function EtiquetteEtape({ etape }: { etape: Etape }) {
+export function EtiquetteStatut({ statut }: { statut: Statut }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap ${TONS_ETAPE[etape]}`}>
-      {LIBELLE_ETAPE[etape]}
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap ${TONS_STATUT[statut]}`}>
+      {LIBELLE_STATUT[statut]}
     </span>
   )
 }
 
-export const LIBELLE_STATUT: Record<StatutCommission, string> = {
-  prevue: 'À venir',
-  a_payer: 'À payer',
-  payee: 'Payée',
-  annulee: 'Annulée',
-}
-
-const TONS_STATUT: Record<StatutCommission, string> = {
-  prevue: 'bg-[var(--color-neutre-fond)] text-encre-2',
-  a_payer: 'bg-[var(--color-attention-fond)] text-[#9a6a00]',
-  payee: 'bg-[var(--color-bien-fond)] text-[#0f7a55]',
-  annulee: 'bg-[var(--color-critique-fond)] text-[#b02a2a]',
-}
-
-export function EtiquetteStatut({ statut }: { statut: StatutCommission }) {
+/**
+ * Badge de sens. La fleche porte l'information autant que la couleur, pour que
+ * le sens reste lisible en noir et blanc comme pour un lecteur daltonien.
+ */
+export function EtiquetteSens({ sens, complet }: { sens: Sens; complet?: boolean }) {
+  const recu = sens === 'recu'
+  const Fleche = recu ? ArrowDownLeft : ArrowUpRight
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap ${TONS_STATUT[statut]}`}>
-      {LIBELLE_STATUT[statut]}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium whitespace-nowrap ${
+        recu
+          ? 'bg-[var(--color-entrant-fond)] text-[var(--color-entrant-fonce)]'
+          : 'bg-[var(--color-sortant-fond)] text-[var(--color-sortant-fonce)]'
+      }`}
+    >
+      <Fleche size={13} />
+      {complet ? (recu ? 'Reçu de Septodont' : 'Envoyé à Septodont') : LIBELLE_SENS_COURT[sens]}
     </span>
   )
 }
@@ -114,11 +108,14 @@ export function Bouton({
   children,
   className = '',
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variante?: 'primaire' | 'secondaire' | 'discret' }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variante?: 'primaire' | 'secondaire' | 'discret' | 'danger'
+}) {
   const variantes = {
     primaire: 'bg-[var(--color-marque)] text-white hover:bg-[var(--color-marque-fonce)] border-transparent',
     secondaire: 'bg-carte text-encre border-bord-fort hover:bg-fond',
     discret: 'bg-transparent text-encre-2 border-transparent hover:bg-fond hover:text-encre',
+    danger: 'bg-transparent text-[var(--color-critique)] border-transparent hover:bg-[var(--color-critique-fond)]',
   }
   return (
     <button
@@ -130,11 +127,20 @@ export function Bouton({
   )
 }
 
-export function Champ({ label, children }: { label: string; children: ReactNode }) {
+export function Champ({
+  label,
+  children,
+  aide,
+}: {
+  label: string
+  children: ReactNode
+  aide?: string
+}) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[12.5px] font-medium text-encre-2">{label}</span>
       {children}
+      {aide && <span className="mt-1 block text-[11.5px] text-encre-3">{aide}</span>}
     </label>
   )
 }
@@ -145,18 +151,58 @@ export const classesSaisie =
 export const classesListe =
   'rounded-lg border border-bord-fort bg-carte px-3 py-2 text-[13.5px] text-encre outline-none transition-colors focus:border-[var(--color-marque)] focus:ring-2 focus:ring-[var(--color-marque-clair)]'
 
-export function Vide({ message }: { message: string }) {
-  return <div className="px-5 py-14 text-center text-[13.5px] text-encre-3">{message}</div>
+export function Vide({ message, action }: { message: string; action?: ReactNode }) {
+  return (
+    <div className="px-5 py-14 text-center">
+      <p className="text-[13.5px] text-encre-3">{message}</p>
+      {action && <div className="mt-3 flex justify-center">{action}</div>}
+    </div>
+  )
+}
+
+/** Selecteur segmente : un choix parmi quelques options, toutes visibles. */
+export function Segments<T extends string>({
+  valeur,
+  options,
+  onChange,
+}: {
+  valeur: T
+  options: { valeur: T; libelle: string; compte?: number }[]
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-bord-fort bg-carte p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.valeur}
+          onClick={() => onChange(o.valeur)}
+          aria-pressed={valeur === o.valeur}
+          className={`rounded-md px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors ${
+            valeur === o.valeur ? 'bg-encre text-white' : 'text-encre-2 hover:bg-fond'
+          }`}
+        >
+          {o.libelle}
+          {o.compte !== undefined && (
+            <span className={`tabulaire ml-1.5 ${valeur === o.valeur ? 'text-white/60' : 'text-encre-3'}`}>
+              {o.compte}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /** Boite de dialogue centree, fermable au clic exterieur. */
 export function Modale({
   titre,
+  sous,
   onFermer,
   children,
   large,
 }: {
-  titre: string
+  titre: ReactNode
+  sous?: ReactNode
   onFermer: () => void
   children: ReactNode
   large?: boolean
@@ -170,11 +216,14 @@ export function Modale({
         className={`apparition w-full rounded-xl border border-bord bg-carte shadow-2xl ${large ? 'max-w-3xl' : 'max-w-2xl'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-bord px-6 py-4">
-          <h2 className="text-[16px] font-semibold">{titre}</h2>
+        <header className="flex items-start justify-between gap-4 border-b border-bord px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="text-[16px] font-semibold">{titre}</h2>
+            {sous && <div className="mt-1 text-[13px] text-encre-2">{sous}</div>}
+          </div>
           <button
             onClick={onFermer}
-            className="rounded-lg p-1.5 text-encre-3 transition-colors hover:bg-fond hover:text-encre"
+            className="shrink-0 rounded-lg p-1.5 text-encre-3 transition-colors hover:bg-fond hover:text-encre"
             aria-label="Fermer"
           >
             <X size={18} />
@@ -183,5 +232,48 @@ export function Modale({
         {children}
       </div>
     </div>
+  )
+}
+
+/** Pastille d'identite : la couleur du membre, ses initiales. */
+export function Avatar({
+  membre,
+  taille = 28,
+  titre,
+}: {
+  membre: { nom: string; couleur: string } | undefined
+  taille?: number
+  titre?: boolean
+}) {
+  if (!membre) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--color-neutre-fond)] font-semibold text-encre-3"
+        style={{ width: taille, height: taille, fontSize: taille * 0.38 }}
+        aria-hidden
+      >
+        ?
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white"
+      style={{ width: taille, height: taille, fontSize: taille * 0.38, background: membre.couleur }}
+      title={titre ? membre.nom : undefined}
+      aria-label={membre.nom}
+    >
+      {initiales(membre.nom)}
+    </span>
+  )
+}
+
+/** Pastille de comptage, pour les messages non lus. */
+export function Pastille({ nombre }: { nombre: number }) {
+  if (nombre <= 0) return null
+  return (
+    <span className="tabulaire inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--color-marque)] px-1 text-[11px] font-semibold text-white">
+      {nombre > 99 ? '99+' : nombre}
+    </span>
   )
 }

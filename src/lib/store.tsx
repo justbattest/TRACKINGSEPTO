@@ -1,35 +1,38 @@
 /**
  * Etat applicatif unique.
  *
- * En mode demo, tout est conserve dans le navigateur (localStorage) : l'outil
- * fonctionne immediatement, sans installation ni compte. Le jour ou la base
- * Supabase est branchee, seules les fonctions de ce fichier changent — les
- * pages et le moteur de calcul restent identiques.
+ * En mode demonstration, tout vit dans le navigateur (localStorage) : l'outil
+ * fonctionne sans compte ni installation. Quand la base sera branchee, seules
+ * les fonctions de ce fichier changeront — les pages resteront identiques.
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { echeancier } from './engine'
-import { genererDemo } from '@/data/seed'
+import { genererDemo, MEMBRES } from '@/data/seed'
 import {
-  REGLAGES_DEFAUT,
-  type Commercial,
-  type Commission,
-  type Contrat,
-  type Etape,
+  COULEURS_MEMBRE,
+  dernierMouvement,
+  type Evenement,
   type Lead,
+  type Membre,
+  type Organisation,
   type Region,
-  type Reglages,
+  type Statut,
 } from './types'
 
-const CLE_STOCKAGE = 'tracking-septo:v2'
+const CLE_STOCKAGE = 'echange-septodont:v1'
+
+/** Champs saisis a la creation d'un lead. */
+export type NouveauLead = Omit<Lead, 'id' | 'statut' | 'fil' | 'transmisLe'> & {
+  transmisLe?: string
+}
 
 interface EtatPersiste {
   leads: Lead[]
-  contrats: Contrat[]
-  commerciaux: Commercial[]
   regions: Region[]
-  reglages: Reglages
-  /** Commissions marquees payees : { "contratId-AAAA-MM": date de paiement }. */
-  paiements: Record<string, string>
+  membres: Membre[]
+  /** Membre connecte. Vide tant que personne ne s'est identifie. */
+  membreId: string
+  /** Date de derniere lecture du fil, par lead : sert a compter les non-lus. */
+  lectures: Record<string, string>
 }
 
 function etatInitial(): EtatPersiste {
@@ -37,10 +40,27 @@ function etatInitial(): EtatPersiste {
     const brut = localStorage.getItem(CLE_STOCKAGE)
     if (brut) return JSON.parse(brut) as EtatPersiste
   } catch {
-    // Stockage indisponible (navigation privee) : on repart des donnees de demo.
+    // Stockage indisponible (navigation privee) : on repart de la demo.
   }
-  const demo = genererDemo()
-  return { ...demo, reglages: REGLAGES_DEFAUT, paiements: {} }
+  return { ...genererDemo(), membreId: '', lectures: {} }
+}
+
+/**
+ * Etat de lecture a la connexion : tout ce qui date de plus de trois jours est
+ * considere comme deja vu, le reste apparait comme nouveau. C'est ce qui se
+ * passe quand on revient sur l'outil apres quelques jours d'absence.
+ */
+const FENETRE_NON_LUS = 3 * 86400000
+
+function lecturesAJour(leads: Lead[], maintenant: Date = new Date()): Record<string, string> {
+  const seuil = new Date(+maintenant - FENETRE_NON_LUS).toISOString()
+  const lectures: Record<string, string> = {}
+  for (const lead of leads) {
+    const dernierVu = [...lead.fil].reverse().find((e) => e.date <= seuil)
+    // Sans evenement anterieur au seuil, tout le fil est nouveau.
+    if (dernierVu) lectures[lead.id] = dernierVu.date
+  }
+  return lectures
 }
 
 function persister(etat: EtatPersiste) {
@@ -52,20 +72,20 @@ function persister(etat: EtatPersiste) {
 }
 
 export interface Contexte extends EtatPersiste {
-  /** Toutes les echeances de commission, recalculees a chaque rendu. */
-  commissions: Commission[]
+  /** Membre connecte, ou undefined tant que personne ne s'est identifie. */
+  moi: Membre | undefined
   regionDe: (id: string) => string
-  commercialDe: (id: string) => Commercial | undefined
   leadDe: (id: string) => Lead | undefined
-  contratDuLead: (leadId: string) => Contrat | undefined
-  ajouterLead: (lead: Omit<Lead, 'id' | 'historique' | 'etape' | 'recuLe'>) => void
-  changerEtape: (leadId: string, etape: Etape, contrat?: { plan: Contrat['plan']; licences?: number }) => void
-  /** Ajuste le nombre de postes d'un contrat (ouverture ou fermeture de poste). */
-  majLicences: (contratId: string, licences: number) => void
-  declarerChurn: (contratId: string, date: string) => void
-  basculerPaiement: (commission: Commission) => void
-  payerPeriode: (periode: string) => void
-  majReglages: (reglages: Reglages) => void
+  membreDe: (id: string) => Membre | undefined
+  membresDe: (organisation: Organisation) => Membre[]
+  ajouterLead: (lead: NouveauLead, message?: string) => void
+  modifierLead: (id: string, champs: Partial<NouveauLead>) => void
+  changerStatut: (id: string, statut: Statut) => void
+  envoyerMessage: (id: string, texte: string) => void
+  marquerLu: (id: string) => void
+  supprimerLead: (id: string) => void
+  seConnecter: (membreId: string) => void
+  creerMembre: (nom: string, organisation: Organisation) => void
   reinitialiser: () => void
 }
 
@@ -82,133 +102,120 @@ export function Fournisseur({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const commissions = useMemo(() => {
-    const lignes: Commission[] = []
-    for (const contrat of etat.contrats) {
-      const lead = etat.leads.find((l) => l.id === contrat.leadId)
-      if (!lead) continue
-      const dejaPayees = Object.entries(etat.paiements)
-        .filter(([cle]) => cle.startsWith(`${contrat.id}-`))
-        .map(([cle, date]) => ({
-          id: cle,
-          contratId: contrat.id,
-          commercialId: lead.commercialId,
-          periode: cle.slice(contrat.id.length + 1),
-          montant: 0,
-          statut: 'payee' as const,
-          payeeLe: date,
-        }))
-      lignes.push(...echeancier(contrat, lead.commercialId, etat.reglages, dejaPayees))
-    }
-    return lignes
-  }, [etat.contrats, etat.leads, etat.paiements, etat.reglages])
+  /** Ajoute une entree au fil d'un lead sans jamais toucher aux precedentes. */
+  const ajouterAuFil = useCallback(
+    (etatCourant: EtatPersiste, id: string, entree: Omit<Evenement, 'id' | 'date' | 'auteurId'>, statut?: Statut): Lead[] =>
+      etatCourant.leads.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              statut: statut ?? l.statut,
+              fil: [
+                ...l.fil,
+                {
+                  ...entree,
+                  id: `e${Date.now()}-${l.fil.length}`,
+                  date: new Date().toISOString(),
+                  auteurId: etatCourant.membreId,
+                },
+              ],
+            }
+          : l,
+      ),
+    [],
+  )
 
   const valeur = useMemo<Contexte>(() => {
     const parRegion = new Map(etat.regions.map((r) => [r.id, r.nom]))
-    const parCommercial = new Map(etat.commerciaux.map((c) => [c.id, c]))
     const parLead = new Map(etat.leads.map((l) => [l.id, l]))
+    const parMembre = new Map(etat.membres.map((m) => [m.id, m]))
 
     return {
       ...etat,
-      commissions,
+      moi: parMembre.get(etat.membreId),
       regionDe: (id) => parRegion.get(id) ?? '—',
-      commercialDe: (id) => parCommercial.get(id),
       leadDe: (id) => parLead.get(id),
-      contratDuLead: (leadId) => etat.contrats.find((c) => c.leadId === leadId),
+      membreDe: (id) => parMembre.get(id),
+      membresDe: (organisation) => etat.membres.filter((m) => m.organisation === organisation),
 
-      ajouterLead: (lead) =>
+      ajouterLead: (lead, message) =>
         modifier((e) => {
-          const maintenant = new Date().toISOString()
-          const nouveau: Lead = {
-            ...lead,
-            id: `l${Date.now()}`,
-            etape: 'nouveau',
-            recuLe: maintenant,
-            historique: [{ date: maintenant, etape: 'nouveau', auteur: 'Saisie manuelle' }],
+          const transmisLe = lead.transmisLe ?? new Date().toISOString()
+          const fil: Evenement[] = [
+            { id: `e${Date.now()}-0`, date: transmisLe, type: 'statut', statut: 'transmis', auteurId: e.membreId },
+          ]
+          // Le mot d'accompagnement ouvre la discussion des la transmission.
+          if (message?.trim()) {
+            fil.push({
+              id: `e${Date.now()}-1`,
+              date: new Date(+new Date(transmisLe) + 1000).toISOString(),
+              type: 'message',
+              texte: message.trim(),
+              auteurId: e.membreId,
+            })
           }
+          const nouveau: Lead = { ...lead, transmisLe, id: `l${Date.now()}`, statut: 'transmis', fil }
           return { ...e, leads: [nouveau, ...e.leads] }
         }),
 
-      changerEtape: (leadId, etape, options) =>
-        modifier((e) => {
-          const maintenant = new Date().toISOString()
-          const leads = e.leads.map((l) =>
-            l.id === leadId
-              ? { ...l, etape, historique: [...l.historique, { date: maintenant, etape, auteur: 'Utilisateur' }] }
-              : l,
-          )
-          let contrats = e.contrats
-          // Passer un lead en "signé" cree son contrat, et donc son echeancier.
-          if (etape === 'signe' && !contrats.some((c) => c.leadId === leadId)) {
-            const plan = options?.plan ?? 'annuel'
-            const licences = Math.max(1, Math.round(options?.licences ?? 1))
-            contrats = [
-              ...contrats,
-              {
-                id: `k${Date.now()}`,
-                leadId,
-                plan,
-                licences,
-                prixCatalogue: e.reglages.prixCatalogue[plan],
-                tauxRemise: e.reglages.tauxRemise,
-                tauxCommission: e.reglages.tauxCommission,
-                moisEngagement: plan === 'annuel' ? 12 : 1,
-                debutLe: maintenant,
-                churnLe: null,
-              },
-            ]
-          }
-          return { ...e, leads, contrats }
-        }),
-
-      majLicences: (contratId, licences) =>
+      modifierLead: (id, champs) =>
         modifier((e) => ({
           ...e,
-          contrats: e.contrats.map((c) =>
-            c.id === contratId ? { ...c, licences: Math.max(1, Math.round(licences)) } : c,
-          ),
+          leads: e.leads.map((l) => (l.id === id ? { ...l, ...champs } : l)),
         })),
 
-      declarerChurn: (contratId, date) =>
+      changerStatut: (id, statut) =>
+        modifier((e) => ({ ...e, leads: ajouterAuFil(e, id, { type: 'statut', statut }, statut) })),
+
+      envoyerMessage: (id, texte) =>
         modifier((e) => {
-          const contrat = e.contrats.find((c) => c.id === contratId)
+          const leads = ajouterAuFil(e, id, { type: 'message', texte: texte.trim() })
+          // Ecrire vaut lecture : on ne se signale pas ses propres messages.
+          const lead = leads.find((l) => l.id === id)
           return {
             ...e,
-            contrats: e.contrats.map((c) => (c.id === contratId ? { ...c, churnLe: date } : c)),
-            leads: contrat
-              ? e.leads.map((l) =>
-                  l.id === contrat.leadId
-                    ? { ...l, etape: 'churn' as Etape, historique: [...l.historique, { date, etape: 'churn' as Etape, auteur: 'Utilisateur' }] }
-                    : l,
-                )
-              : e.leads,
+            leads,
+            lectures: lead ? { ...e.lectures, [id]: dernierMouvement(lead) } : e.lectures,
           }
         }),
 
-      basculerPaiement: (commission) =>
+      marquerLu: (id) =>
         modifier((e) => {
-          const paiements = { ...e.paiements }
-          if (paiements[commission.id]) delete paiements[commission.id]
-          else paiements[commission.id] = new Date().toISOString()
-          return { ...e, paiements }
+          const lead = e.leads.find((l) => l.id === id)
+          if (!lead) return e
+          const jusqua = dernierMouvement(lead)
+          if (e.lectures[id] === jusqua) return e
+          return { ...e, lectures: { ...e.lectures, [id]: jusqua } }
         }),
 
-      payerPeriode: (periode) =>
+      supprimerLead: (id) => modifier((e) => ({ ...e, leads: e.leads.filter((l) => l.id !== id) })),
+
+      // On arrive a jour : seuls les messages postes apres la connexion sont signales.
+      seConnecter: (membreId) =>
+        modifier((e) => ({ ...e, membreId, lectures: lecturesAJour(e.leads) })),
+
+      creerMembre: (nom, organisation) =>
         modifier((e) => {
-          const paiements = { ...e.paiements }
-          const maintenant = new Date().toISOString()
-          for (const c of commissions) {
-            if (c.periode === periode && c.statut === 'a_payer') paiements[c.id] = maintenant
+          // Couleur suivante non utilisee, pour que deux personnes ne se ressemblent pas.
+          const prises = new Set(e.membres.map((m) => m.couleur))
+          const couleur =
+            COULEURS_MEMBRE.find((c) => !prises.has(c)) ?? COULEURS_MEMBRE[e.membres.length % COULEURS_MEMBRE.length]
+          const membre: Membre = { id: `m${Date.now()}`, nom: nom.trim(), organisation, couleur }
+          return {
+            ...e,
+            membres: [...e.membres, membre],
+            membreId: membre.id,
+            lectures: lecturesAJour(e.leads),
           }
-          return { ...e, paiements }
         }),
-
-      majReglages: (reglages) => modifier((e) => ({ ...e, reglages })),
 
       reinitialiser: () =>
-        modifier(() => ({ ...genererDemo(), reglages: REGLAGES_DEFAUT, paiements: {} })),
+        modifier((e) => {
+          const demo = genererDemo()
+          return { ...demo, membreId: e.membreId || MEMBRES[0].id, lectures: lecturesAJour(demo.leads) }
+        }),
     }
-  }, [etat, commissions, modifier])
+  }, [etat, modifier, ajouterAuFil])
 
   return <Ctx.Provider value={valeur}>{children}</Ctx.Provider>
 }

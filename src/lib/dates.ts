@@ -55,3 +55,13 @@ export function formatDate(date: string | Date | null | undefined): string {
 export function aujourdhui(): Date {
   return new Date()
 }
+
+/** Delai en clair : « aujourd'hui », « hier », puis en jours. */
+export function ilYa(date: string | Date, maintenant: Date = new Date()): string {
+  const jours = Math.floor((+maintenant - +new Date(date)) / 86400000)
+  if (jours <= 0) return "aujourd'hui"
+  if (jours === 1) return 'hier'
+  if (jours < 31) return `il y a ${jours} jours`
+  const mois = Math.round(jours / 30.44)
+  return `il y a ${mois} mois`
+}

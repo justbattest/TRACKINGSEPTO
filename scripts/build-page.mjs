@@ -12,7 +12,7 @@ const css = fichiers.filter((f) => f.endsWith('.css')).map((f) => readFileSync(j
 const js = fichiers.filter((f) => f.endsWith('.js')).map((f) => readFileSync(join(dist, 'assets', f), 'utf8')).join('\n')
 
 // Les balises de document sont ajoutees par l'hote : on ne produit que le contenu.
-const page = `<title>Tracking Septodont</title>
+const page = `<title>Échange Alyxa Septodont</title>
 <style>
 ${css}
 </style>

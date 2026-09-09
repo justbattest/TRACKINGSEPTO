@@ -1,9 +1,10 @@
 -- ============================================================================
--- Tracking Septodont — schema de base
+-- Échange de leads Alyxa <-> Septodont — schema de base
 --
 -- A executer tel quel dans l'editeur SQL d'un projet Supabase.
--- L'application fonctionne sans lui (mode demo, stockage navigateur) ; ce
--- schema est la cible pour passer en base reelle, multi-utilisateurs.
+-- L'application fonctionne sans lui (mode demonstration, stockage navigateur) ;
+-- ce schema est la cible pour passer en base reelle, partagee entre les deux
+-- equipes.
 -- ============================================================================
 
 create extension if not exists "pgcrypto";
@@ -13,257 +14,182 @@ create extension if not exists "pgcrypto";
 -- ----------------------------------------------------------------------------
 
 create table regions (
-  id    text primary key,
-  nom   text not null
+  id  text primary key,
+  nom text not null
 );
 
-create table partenaires (
-  id            uuid primary key default gen_random_uuid(),
-  nom           text not null,
-  cree_le       timestamptz not null default now()
+create type organisation as enum ('alyxa', 'septodont');
+
+/*
+ * Une personne qui utilise l'outil, des deux cotes du partenariat.
+ * `utilisateur_id` relie le membre a son compte Supabase ; il reste vide tant
+ * que la personne n'a pas ouvert de session.
+ */
+create table membres (
+  id             uuid primary key default gen_random_uuid(),
+  utilisateur_id uuid unique references auth.users(id) on delete set null,
+  nom            text not null,
+  organisation   organisation not null,
+  -- Couleur d'avatar : elle identifie l'auteur dans les discussions.
+  couleur        text not null,
+  actif          boolean not null default true,
+  cree_le        timestamptz not null default now()
 );
 
-create table commerciaux (
-  id            uuid primary key default gen_random_uuid(),
-  partenaire_id uuid not null references partenaires(id) on delete cascade,
-  nom           text not null,
-  email         text not null,
-  region_id     text references regions(id),
-  -- Identifiant public du lien de captation : /l/<slug>
-  slug          text not null unique,
-  actif         boolean not null default true,
-  cree_le       timestamptz not null default now()
-);
+create index membres_organisation_idx on membres(organisation);
 
 -- ----------------------------------------------------------------------------
 -- Leads
 -- ----------------------------------------------------------------------------
 
-create type etape_lead as enum (
-  'nouveau', 'contacte', 'demo_planifiee', 'demo_faite', 'signe', 'churn', 'perdu'
-);
+-- Sens de circulation, vu depuis Alyxa.
+create type sens_lead as enum ('recu', 'envoye');
+
+create type statut_lead as enum ('transmis', 'contacte', 'rdv', 'converti', 'sans_suite');
 
 create table leads (
-  id            uuid primary key default gen_random_uuid(),
-  cabinet       text not null,
-  praticien     text not null,
-  email         text,
-  telephone     text,
-  ville         text,
-  code_postal   text,
-  region_id     text references regions(id),
-  commercial_id uuid not null references commerciaux(id),
-  etape         etape_lead not null default 'nouveau',
-  -- Horodatage de reception : c'est la piece qui fait foi en cas de litige.
-  recu_le       timestamptz not null default now(),
-  notes         text
-);
-
-create index leads_commercial_idx on leads(commercial_id);
-create index leads_region_idx     on leads(region_id);
-create index leads_recu_idx       on leads(recu_le desc);
-
--- Journal immuable des changements d'etape. On n'ecrit jamais dans le passe.
-create table evenements_lead (
-  id       bigserial primary key,
-  lead_id  uuid not null references leads(id) on delete cascade,
-  etape    etape_lead not null,
-  auteur   text not null,
-  survenu_le timestamptz not null default now()
-);
-
-create index evenements_lead_idx on evenements_lead(lead_id, survenu_le);
-
--- ----------------------------------------------------------------------------
--- Contrats
---
--- Les taux sont figes a la signature (snapshot) : changer la grille demain ne
--- doit jamais reecrire l'historique des contrats deja signes.
--- ----------------------------------------------------------------------------
-
-create type formule as enum ('mensuel', 'annuel');
-
-create table contrats (
   id               uuid primary key default gen_random_uuid(),
-  lead_id          uuid not null unique references leads(id) on delete cascade,
-  plan             formule not null,
-  -- Alyxa se vend au poste : un cabinet de 3 praticiens souscrit 3 licences.
-  licences         int not null default 1 check (licences >= 1),
-  -- Prix catalogue PAR LICENCE, fige au jour de la signature.
-  prix_catalogue   numeric(10,2) not null,
-  taux_remise      numeric(5,4) not null default 0.1000,
-  taux_commission  numeric(5,4) not null default 0.1500,
-  mois_engagement  int not null,
-  debut_le         timestamptz not null,
-  churn_le         timestamptz,
-  constraint duree_positive check (mois_engagement > 0),
-  constraint churn_apres_debut check (churn_le is null or churn_le >= debut_le)
+  sens             sens_lead not null,
+  structure        text not null,
+  contact          text not null,
+  telephone        text,
+  email            text,
+  ville            text,
+  code_postal      text,
+  region_id        text references regions(id),
+  motif            text not null,
+  transmis_par     uuid not null references membres(id),
+  -- Horodatage de transmission : la reference en cas de desaccord sur un volume.
+  transmis_le      timestamptz not null default now(),
+  statut           statut_lead not null default 'transmis',
+  -- Denormalise pour trier la liste sans agreger le fil a chaque affichage.
+  dernier_mouvement timestamptz not null default now()
 );
 
--- Colonnes calculees : la cascade de prix ne se recalcule jamais a la main.
--- On arrondit sur le total du contrat, licences comprises : c'est le montant
--- reellement facture, pas une somme d'arrondis par licence.
-alter table contrats
-  add column prix_paye numeric(10,2)
-    generated always as (
-      round(round(prix_catalogue * licences, 2) * (1 - taux_remise), 2)
-    ) stored,
-  add column commission_mensuelle numeric(10,2)
-    generated always as (
-      round(round(round(prix_catalogue * licences, 2) * (1 - taux_remise), 2) * taux_commission, 2)
-    ) stored;
+create index leads_sens_idx       on leads(sens);
+create index leads_statut_idx     on leads(statut);
+create index leads_region_idx     on leads(region_id);
+create index leads_transmis_idx   on leads(transmis_le desc);
+create index leads_mouvement_idx  on leads(dernier_mouvement desc);
 
 -- ----------------------------------------------------------------------------
--- Commissions
+-- Le fil de chaque lead
 --
--- Une ligne par mois du. Generee a la signature, jamais recalculee derriere :
--- une echeance payee reste payee quoi qu'il arrive ensuite.
+-- Messages et changements de statut vivent dans la meme table : c'est ce qui
+-- permet de relire l'histoire complete d'un lead dans l'ordre.
 -- ----------------------------------------------------------------------------
 
-create type statut_commission as enum ('prevue', 'a_payer', 'payee', 'annulee');
+create type type_evenement as enum ('statut', 'message');
 
-create table commissions (
-  id            uuid primary key default gen_random_uuid(),
-  contrat_id    uuid not null references contrats(id) on delete cascade,
-  commercial_id uuid not null references commerciaux(id),
-  -- Mois de rattachement, au format AAAA-MM.
-  periode       text not null check (periode ~ '^\d{4}-\d{2}$'),
-  montant       numeric(10,2) not null,
-  statut        statut_commission not null default 'prevue',
-  payee_le      timestamptz,
-  unique (contrat_id, periode)
+create table evenements (
+  id        uuid primary key default gen_random_uuid(),
+  lead_id   uuid not null references leads(id) on delete cascade,
+  auteur_id uuid not null references membres(id),
+  type      type_evenement not null,
+  -- Renseigne pour un changement de statut.
+  statut    statut_lead,
+  -- Renseigne pour un message.
+  texte     text,
+  survenu_le timestamptz not null default now(),
+  constraint contenu_coherent check (
+    (type = 'statut'  and statut is not null) or
+    (type = 'message' and texte  is not null and length(trim(texte)) > 0)
+  )
 );
 
-create index commissions_commercial_idx on commissions(commercial_id);
-create index commissions_periode_idx    on commissions(periode);
-create index commissions_statut_idx     on commissions(statut);
+create index evenements_lead_idx on evenements(lead_id, survenu_le);
 
--- Genere tout l'echeancier d'un contrat : une ligne par mois commissionne,
--- plafonne a 12 mois, coupe a la resiliation.
-create or replace function generer_echeancier(p_contrat_id uuid, p_plafond int default 12)
-returns void
-language plpgsql
-as $$
-declare
-  c contrats%rowtype;
-  v_commercial uuid;
-  v_mois int;
-  i int;
-  v_debut_periode timestamptz;
-begin
-  select * into c from contrats where id = p_contrat_id;
-  if not found then
-    raise exception 'contrat % introuvable', p_contrat_id;
-  end if;
-
-  select commercial_id into v_commercial from leads where id = c.lead_id;
-  v_mois := least(c.mois_engagement, p_plafond);
-
-  for i in 0 .. v_mois - 1 loop
-    v_debut_periode := c.debut_le + (i || ' months')::interval;
-
-    insert into commissions (contrat_id, commercial_id, periode, montant, statut)
-    values (
-      c.id,
-      v_commercial,
-      to_char(v_debut_periode, 'YYYY-MM'),
-      c.commission_mensuelle,
-      case
-        when c.churn_le is not null and v_debut_periode >= c.churn_le then 'annulee'
-        when v_debut_periode > now() then 'prevue'
-        else 'a_payer'
-      end
-    )
-    -- Une echeance deja payee n'est jamais remise en cause.
-    on conflict (contrat_id, periode) do update
-      set montant = excluded.montant,
-          statut  = case when commissions.statut = 'payee' then 'payee' else excluded.statut end;
-  end loop;
-end;
-$$;
-
--- Toute creation ou modification de contrat resynchronise son echeancier.
-create or replace function sync_echeancier() returns trigger
+-- Toute entree au fil met a jour le statut et la date de dernier mouvement.
+create or replace function refleter_evenement() returns trigger
 language plpgsql as $$
 begin
-  perform generer_echeancier(new.id);
+  update leads
+     set dernier_mouvement = greatest(dernier_mouvement, new.survenu_le),
+         statut = coalesce(new.statut, statut)
+   where id = new.lead_id;
   return new;
 end;
 $$;
 
-create trigger contrats_sync_echeancier
-  after insert or update of churn_le, mois_engagement, licences, prix_catalogue, taux_remise, taux_commission
-  on contrats
-  for each row execute function sync_echeancier();
+create trigger evenements_refletent_le_lead
+  after insert on evenements
+  for each row execute function refleter_evenement();
+
+-- ----------------------------------------------------------------------------
+-- Lecture des discussions
+--
+-- Une ligne par membre et par lead : jusqu'ou cette personne a lu le fil.
+-- C'est ce qui alimente les pastilles de messages non lus.
+-- ----------------------------------------------------------------------------
+
+create table lectures (
+  membre_id  uuid not null references membres(id) on delete cascade,
+  lead_id    uuid not null references leads(id) on delete cascade,
+  lu_jusqua  timestamptz not null default now(),
+  primary key (membre_id, lead_id)
+);
+
+-- Nombre de messages non lus par lead, pour le membre connecte.
+create or replace view non_lus as
+  select m.id as membre_id,
+         l.id as lead_id,
+         count(e.id) as messages
+    from membres m
+    cross join leads l
+    left join lectures lu on lu.membre_id = m.id and lu.lead_id = l.id
+    left join evenements e
+           on e.lead_id = l.id
+          and e.type = 'message'
+          and e.auteur_id <> m.id
+          and (lu.lu_jusqua is null or e.survenu_le > lu.lu_jusqua)
+   group by m.id, l.id;
 
 -- ----------------------------------------------------------------------------
 -- Securite
 --
--- RLS active partout. Deux profils :
---   - l'equipe Alyxa voit tout ;
---   - un utilisateur Septodont ne voit que les donnees de son partenaire.
--- C'est ce qui permet d'ouvrir un portail a Septodont sans jamais exposer
--- le reste de la base.
+-- L'echange est un espace partage entre les deux maisons : tout membre
+-- authentifie voit tous les leads et toutes les discussions. C'est le principe
+-- meme du partenariat — chacun doit savoir ce que son contact est devenu.
+-- Ce qui reste prive, ce sont les etats de lecture de chacun.
 -- ----------------------------------------------------------------------------
 
-create table profils (
-  utilisateur_id uuid primary key references auth.users(id) on delete cascade,
-  role           text not null check (role in ('alyxa', 'partenaire')),
-  partenaire_id  uuid references partenaires(id)
-);
+alter table regions    enable row level security;
+alter table membres    enable row level security;
+alter table leads      enable row level security;
+alter table evenements enable row level security;
+alter table lectures   enable row level security;
 
-alter table regions        enable row level security;
-alter table partenaires    enable row level security;
-alter table commerciaux    enable row level security;
-alter table leads          enable row level security;
-alter table evenements_lead enable row level security;
-alter table contrats       enable row level security;
-alter table commissions    enable row level security;
-alter table profils        enable row level security;
-
-create or replace function est_alyxa() returns boolean
+-- Le membre correspondant a la session en cours.
+create or replace function mon_membre() returns uuid
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from profils where utilisateur_id = auth.uid() and role = 'alyxa');
+  select id from membres where utilisateur_id = auth.uid() and actif;
 $$;
 
-create or replace function mon_partenaire() returns uuid
-language sql stable security definer set search_path = public as $$
-  select partenaire_id from profils where utilisateur_id = auth.uid();
-$$;
+create policy "referentiel lisible" on regions
+  for select to authenticated using (true);
 
-create policy "profil visible par son proprietaire"
-  on profils for select using (utilisateur_id = auth.uid());
+create policy "annuaire lisible" on membres
+  for select to authenticated using (true);
+create policy "chacun met a jour sa fiche" on membres
+  for update to authenticated using (utilisateur_id = auth.uid());
 
-create policy "referentiel lisible par tous les connectes"
-  on regions for select to authenticated using (true);
+create policy "leads lisibles par les deux maisons" on leads
+  for select to authenticated using (mon_membre() is not null);
+create policy "leads ajoutes par un membre" on leads
+  for insert to authenticated with check (transmis_par = mon_membre());
+create policy "leads modifiables par un membre" on leads
+  for update to authenticated using (mon_membre() is not null);
+create policy "leads supprimables par celui qui les a transmis" on leads
+  for delete to authenticated using (transmis_par = mon_membre());
 
-create policy "alyxa gere tout" on commerciaux for all
-  using (est_alyxa()) with check (est_alyxa());
-create policy "partenaire lit ses commerciaux" on commerciaux for select
-  using (partenaire_id = mon_partenaire());
+create policy "fil lisible par les deux maisons" on evenements
+  for select to authenticated using (mon_membre() is not null);
+-- On ne peut ecrire qu'en son propre nom, et le passe reste intouchable.
+create policy "on ecrit en son nom" on evenements
+  for insert to authenticated with check (auteur_id = mon_membre());
 
-create policy "alyxa gere les leads" on leads for all
-  using (est_alyxa()) with check (est_alyxa());
-create policy "partenaire lit ses leads" on leads for select
-  using (commercial_id in (select id from commerciaux where partenaire_id = mon_partenaire()));
-
-create policy "alyxa gere les contrats" on contrats for all
-  using (est_alyxa()) with check (est_alyxa());
-create policy "partenaire lit ses contrats" on contrats for select
-  using (lead_id in (
-    select l.id from leads l
-    join commerciaux c on c.id = l.commercial_id
-    where c.partenaire_id = mon_partenaire()
-  ));
-
-create policy "alyxa gere les commissions" on commissions for all
-  using (est_alyxa()) with check (est_alyxa());
-create policy "partenaire lit ses commissions" on commissions for select
-  using (commercial_id in (select id from commerciaux where partenaire_id = mon_partenaire()));
-
-create policy "alyxa lit le journal" on evenements_lead for select using (est_alyxa());
-create policy "alyxa ecrit le journal" on evenements_lead for insert with check (est_alyxa());
-create policy "alyxa lit les partenaires" on partenaires for select using (est_alyxa());
+create policy "chacun gere ses lectures" on lectures
+  for all to authenticated using (membre_id = mon_membre()) with check (membre_id = mon_membre());
 
 -- ----------------------------------------------------------------------------
 -- Amorcage
@@ -272,9 +198,7 @@ create policy "alyxa lit les partenaires" on partenaires for select using (est_a
 insert into regions (id, nom) values
   ('idf', 'Île-de-France'), ('paca', 'PACA'), ('ara', 'Auvergne-Rhône-Alpes'),
   ('occ', 'Occitanie'), ('na', 'Nouvelle-Aquitaine'), ('hdf', 'Hauts-de-France'),
-  ('ge', 'Grand Est'), ('bzh', 'Bretagne'), ('nor', 'Normandie'),
-  ('cvl', 'Centre-Val de Loire'), ('bfc', 'Bourgogne-Franche-Comté'),
-  ('pdl', 'Pays de la Loire'), ('cor', 'Corse')
+  ('ge', 'Grand Est'), ('bzh', 'Bretagne'), ('pdl', 'Pays de la Loire'),
+  ('nor', 'Normandie'), ('cvl', 'Centre-Val de Loire'),
+  ('bfc', 'Bourgogne-Franche-Comté'), ('cor', 'Corse')
 on conflict do nothing;
-
-insert into partenaires (nom) values ('Septodont') on conflict do nothing;

@@ -18,9 +18,13 @@
   --color-marque-fonce: #1c5cab;
   --color-marque-clair: #eaf2fd;
 
-  --color-serie-1: #2a78d6;
-  --color-serie-2: #eb6834;
-  --color-serie-3: #1baf7a;
+  /* Les deux sens de l'echange, presents partout dans l'interface. */
+  --color-entrant: #2a78d6;
+  --color-entrant-fonce: #1c5cab;
+  --color-entrant-fond: #eaf2fd;
+  --color-sortant: #eb6834;
+  --color-sortant-fonce: #b8461c;
+  --color-sortant-fond: #fdefe8;
 
   --color-bien: #1baf7a;
   --color-bien-fond: #e6f7f1;
