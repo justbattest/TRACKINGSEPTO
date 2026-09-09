@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, UserPlus } from 'lucide-react'
+import { Check, TriangleAlert, UserPlus } from 'lucide-react'
 import { Avatar, Bouton, Champ, classesSaisie, Modale } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import { LIBELLE_ORGANISATION, type Organisation } from '@/lib/types'
@@ -23,6 +23,21 @@ export default function Identite({
 
   const contenu = (
     <div className="space-y-5 px-6 py-5">
+      {/*
+        Cet ecran n'apparait qu'en mode demonstration. Le dire franchement evite
+        de confondre les personnages d'exemple avec de vrais comptes.
+      */}
+      <div className="flex gap-2.5 rounded-lg bg-[var(--color-attention-fond)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#7a5400]">
+        <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+        <span>
+          <strong className="font-semibold">Mode démonstration.</strong> Cette page n’est pas
+          connectée à la base partagée : les personnes ci-dessous sont des exemples, et les données
+          restent dans ce navigateur. Pour la vraie version, le site doit être construit avec les
+          variables <code className="rounded bg-black/5 px-1">VITE_SUPABASE_URL</code> et{' '}
+          <code className="rounded bg-black/5 px-1">VITE_SUPABASE_ANON_KEY</code>.
+        </span>
+      </div>
+
       {!creation ? (
         <>
           {(['alyxa', 'septodont'] as Organisation[]).map((org) => {

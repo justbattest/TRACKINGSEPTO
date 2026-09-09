@@ -114,18 +114,33 @@ fonction de création de compte, temps réel.
 Pour le rejouer ou le poser ailleurs, coller le fichier dans l'éditeur SQL. Il
 est idempotent.
 
-### 2. Ouvrir les bons domaines
+### 2. Qui peut entrer
 
-Le schéma amorce `alyxa.fr`, `septodont.com` et `septodont.fr`. Pour en ajouter
-un :
+Deux portes, une seule barrière :
 
-```sql
-insert into domaines_autorises (domaine, organisation)
-values ('mondomaine.fr', 'septodont');
-```
+1. **Un domaine reconnu.** Le schéma amorce `alyxa.fr`, `septodont.com` et
+   `septodont.fr`. Pour en ajouter un :
 
-**C'est le seul contrôle d'accès.** Une adresse hors de cette liste peut créer
-un compte, mais ne peut pas créer de profil : elle ne voit rien.
+   ```sql
+   insert into domaines_autorises (domaine, organisation)
+   values ('mondomaine.fr', 'septodont');
+   ```
+
+2. **Le code d'accès partagé**, pour toute adresse hors de cette liste. Il est
+   généré à la création de la base et se lit — ou se change — ainsi :
+
+   ```sql
+   select valeur from parametres where cle = 'code_acces';
+   update parametres set valeur = 'NOUVEAU-CODE' where cle = 'code_acces';
+   ```
+
+Sans l'un ou l'autre, un compte peut exister mais aucun profil ne peut être
+créé : la personne ne voit rien.
+
+L'équipe — Alyxa ou Septodont — est en revanche **choisie librement** à
+l'inscription. Ce n'est pas un cloisonnement : les deux voient les mêmes leads
+et les mêmes discussions. Elle ne détermine que le sens de lecture, c'est-à-dire
+ce qui s'affiche comme « envoyé » et comme « reçu ».
 
 ### 3. Déployer sur Netlify
 
@@ -151,9 +166,9 @@ renvoient vers `localhost`.
 
 Le schéma pose la sécurité au niveau des lignes :
 
-- **L'organisation n'est jamais déclarée par l'utilisateur.** Elle est déduite du
-  domaine de son adresse au moment de créer son profil. Personne ne peut se
-  présenter comme Alyxa avec une adresse Septodont, ni l'inverse.
+- **L'entrée est verrouillée** par le domaine de l'adresse ou par le code
+  d'accès. Sans l'un des deux, aucun profil ne peut être créé, donc rien n'est
+  visible.
 - **Tout membre voit tous les leads et toutes les discussions.** C'est le principe
   du partenariat : chacun doit savoir ce que son contact est devenu.
 - **On n'écrit qu'en son propre nom**, et le fil est en insertion seule : aucune
@@ -162,8 +177,15 @@ Le schéma pose la sécurité au niveau des lignes :
 
 Ces règles sont vérifiées en base, pas seulement dans l'application : douze
 contrôles ont été passés en simulant deux sessions authentifiées — compte sans
-profil aveugle, organisation déduite du domaine, domaine non autorisé refusé,
-transmission au nom d'autrui refusée, fil inaltérable, lectures cloisonnées.
+profil aveugle, domaine non autorisé refusé, transmission au nom d'autrui
+refusée, fil inaltérable, lectures cloisonnées.
+
+## Si l'application affiche « Mode démonstration »
+
+C'est que le site a été **construit** sans les variables d'environnement. Vite
+les fige dans le code au moment du build : les ajouter dans Netlify ne suffit
+pas, il faut relancer un déploiement (**Deploys → Trigger deploy → Clear cache
+and deploy site**). Un bandeau orange sur l'écran d'accueil signale ce cas.
 
 ## Déploiement statique ailleurs
 

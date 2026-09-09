@@ -1,34 +1,36 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, Loader2, MailCheck, Repeat2 } from 'lucide-react'
+import { AlertCircle, KeyRound, Loader2, MailCheck, Repeat2 } from 'lucide-react'
 import { Bouton, Champ, classesSaisie } from '@/components/ui'
 import { creerMonMembre } from '@/lib/api'
 import { client } from '@/lib/supabase'
+import { LIBELLE_ORGANISATION, type Organisation } from '@/lib/types'
 
-type Ecran = 'chargement' | 'connexion' | 'inscription' | 'verifiez' | 'profil'
+type Ecran = 'chargement' | 'inscription' | 'connexion' | 'verifiez' | 'profil'
 
 /**
- * Porte d'entree de l'outil partage.
+ * Porte d'entree de l'outil.
  *
- * Trois etats : pas de session, session sans profil (premiere venue), ou en
- * attente de confirmation d'adresse. La maison — Alyxa ou Septodont — n'est
- * jamais choisie ici : elle est deduite du domaine de l'adresse au moment de
- * creer le profil.
+ * On arrive sur la creation de compte : c'est le cas le plus frequent quand on
+ * recoit le lien pour la premiere fois. Une session sans profil bascule
+ * directement sur l'ecran d'identite.
  */
 export default function Connexion() {
   const [ecran, setEcran] = useState<Ecran>('chargement')
   const [email, setEmail] = useState('')
   const [motDePasse, setMotDePasse] = useState('')
   const [nom, setNom] = useState('')
+  const [maison, setMaison] = useState<Organisation>('alyxa')
+  const [code, setCode] = useState('')
+  const [codeDemande, setCodeDemande] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const [occupe, setOccupe] = useState(false)
 
-  // Une session sans profil signifie : premiere venue, on demande le nom.
   useEffect(() => {
     let vivant = true
     void client()
       .auth.getSession()
       .then(({ data }) => {
-        if (vivant) setEcran(data.session ? 'profil' : 'connexion')
+        if (vivant) setEcran(data.session ? 'profil' : 'inscription')
       })
     return () => {
       vivant = false
@@ -41,7 +43,10 @@ export default function Connexion() {
     try {
       await action()
     } catch (e) {
-      setErreur(lisible(e))
+      const message = lisible(e)
+      setErreur(message)
+      // Une adresse non reconnue : on propose alors le code d'acces.
+      if (/pas reconnue|Accès refusé/i.test(message)) setCodeDemande(true)
     } finally {
       setOccupe(false)
     }
@@ -49,14 +54,20 @@ export default function Connexion() {
 
   const seConnecter = () =>
     tenter(async () => {
-      const { error } = await client().auth.signInWithPassword({ email: email.trim(), password: motDePasse })
+      const { error } = await client().auth.signInWithPassword({
+        email: email.trim(),
+        password: motDePasse,
+      })
       if (error) throw error
       setEcran('profil')
     })
 
   const sInscrire = () =>
     tenter(async () => {
-      const { data, error } = await client().auth.signUp({ email: email.trim(), password: motDePasse })
+      const { data, error } = await client().auth.signUp({
+        email: email.trim(),
+        password: motDePasse,
+      })
       if (error) throw error
       // Sans confirmation d'adresse, la session est ouverte immediatement.
       setEcran(data.session ? 'profil' : 'verifiez')
@@ -64,8 +75,8 @@ export default function Connexion() {
 
   const creerProfil = () =>
     tenter(async () => {
-      await creerMonMembre(nom)
-      // Le store recharge sur le changement d'etat d'authentification.
+      await creerMonMembre(nom, maison, code)
+      // Le magasin recharge sur le changement d'etat d'authentification.
       await client().auth.refreshSession()
     })
 
@@ -99,12 +110,11 @@ export default function Connexion() {
   if (ecran === 'profil') {
     return (
       <Cadre>
-        <h1 className="text-[19px] font-semibold tracking-tight">Bienvenue</h1>
+        <h1 className="text-[19px] font-semibold tracking-tight">Votre profil</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-encre-2">
-          Dernière étape : votre nom, tel qu’il apparaîtra à côté de vos messages. Votre maison —
-          Alyxa ou Septodont — est reconnue automatiquement à partir de votre adresse
-          professionnelle.
+          Votre nom et votre couleur vous identifient dans les discussions sur les leads.
         </p>
+
         <form
           className="mt-5 space-y-4"
           onSubmit={(e) => {
@@ -122,6 +132,48 @@ export default function Connexion() {
               className={classesSaisie}
             />
           </Champ>
+
+          <Champ
+            label="Votre équipe"
+            aide="Elle détermine le sens de lecture : ce que vous envoyez et ce que vous recevez."
+          >
+            <div className="flex gap-2">
+              {(['alyxa', 'septodont'] as Organisation[]).map((org) => (
+                <button
+                  key={org}
+                  type="button"
+                  onClick={() => setMaison(org)}
+                  aria-pressed={maison === org}
+                  className={`flex-1 rounded-lg border px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
+                    maison === org
+                      ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
+                      : 'border-bord-fort text-encre-2 hover:bg-fond'
+                  }`}
+                >
+                  {LIBELLE_ORGANISATION[org]}
+                </button>
+              ))}
+            </div>
+          </Champ>
+
+          {codeDemande && (
+            <Champ
+              label="Code d’accès"
+              aide="Votre adresse n’est pas sur un domaine reconnu. Demandez le code à votre contact."
+            >
+              <div className="relative">
+                <KeyRound size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3" />
+                <input
+                  autoFocus
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="ALYXA-SEPTO-XXXXXX"
+                  className={`${classesSaisie} pl-9 uppercase`}
+                />
+              </div>
+            </Champ>
+          )}
+
           <Erreur message={erreur} />
           <Bouton
             type="submit"
@@ -132,6 +184,7 @@ export default function Connexion() {
             {occupe ? <Loader2 size={16} className="animate-spin" /> : 'Entrer'}
           </Bouton>
         </form>
+
         <button
           onClick={() => void client().auth.signOut().then(() => setEcran('connexion'))}
           className="mt-4 w-full text-center text-[12.5px] text-encre-3 hover:text-encre-2 hover:underline"
@@ -151,8 +204,8 @@ export default function Connexion() {
       </h1>
       <p className="mt-1.5 text-[13.5px] leading-relaxed text-encre-2">
         {inscription
-          ? 'Utilisez votre adresse professionnelle Alyxa ou Septodont : c’est elle qui détermine votre maison.'
-          : 'Le registre des leads échangés entre Alyxa et Septodont.'}
+          ? 'Le registre des leads échangés entre Alyxa et Septodont. Utilisez votre adresse professionnelle.'
+          : 'Content de vous revoir.'}
       </p>
 
       <form
@@ -162,7 +215,7 @@ export default function Connexion() {
           void (inscription ? sInscrire() : seConnecter())
         }}
       >
-        <Champ label="Adresse professionnelle">
+        <Champ label="Adresse email">
           <input
             autoFocus
             required
@@ -170,7 +223,7 @@ export default function Connexion() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="prenom.nom@alyxa.fr"
+            placeholder="prenom.nom@exemple.fr"
             className={classesSaisie}
           />
         </Champ>
@@ -192,7 +245,13 @@ export default function Connexion() {
           disabled={occupe}
           className="w-full justify-center py-2.5"
         >
-          {occupe ? <Loader2 size={16} className="animate-spin" /> : inscription ? 'Créer mon compte' : 'Se connecter'}
+          {occupe ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : inscription ? (
+            'Créer mon compte'
+          ) : (
+            'Se connecter'
+          )}
         </Bouton>
       </form>
 
@@ -203,7 +262,7 @@ export default function Connexion() {
         }}
         className="mt-4 w-full text-center text-[12.5px] text-encre-2 hover:underline"
       >
-        {inscription ? 'J’ai déjà un compte' : 'Première venue ? Créer mon compte'}
+        {inscription ? 'J’ai déjà un compte' : 'Créer un compte'}
       </button>
     </Cadre>
   )
@@ -240,12 +299,16 @@ function Cadre({ children }: { children: React.ReactNode }) {
 
 /** Traduit les messages techniques de Supabase en phrases utilisables. */
 function lisible(e: unknown): string {
-  const brut = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : ''
+  const brut =
+    e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : ''
   if (/invalid login credentials/i.test(brut)) return 'Adresse ou mot de passe incorrect.'
-  if (/user already registered/i.test(brut)) return 'Un compte existe déjà avec cette adresse. Connectez-vous.'
-  if (/password should be at least/i.test(brut)) return 'Le mot de passe doit faire au moins 8 caractères.'
-  if (/email not confirmed/i.test(brut)) return 'Confirmez d’abord votre adresse via le lien reçu par mail.'
-  if (/n’est pas autorisé|n'est pas autorisé/i.test(brut)) return brut
-  if (/rate limit|too many/i.test(brut)) return 'Trop de tentatives. Réessayez dans quelques minutes.'
+  if (/user already registered/i.test(brut))
+    return 'Un compte existe déjà avec cette adresse. Connectez-vous.'
+  if (/password should be at least/i.test(brut))
+    return 'Le mot de passe doit faire au moins 8 caractères.'
+  if (/email not confirmed/i.test(brut))
+    return 'Confirmez d’abord votre adresse via le lien reçu par mail.'
+  if (/rate limit|too many/i.test(brut))
+    return 'Trop de tentatives. Réessayez dans quelques minutes.'
   return brut || 'Une erreur est survenue.'
 }

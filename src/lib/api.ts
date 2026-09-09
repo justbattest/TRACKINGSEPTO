@@ -67,9 +67,23 @@ export async function monMembre(): Promise<Membre | null> {
   return data ?? null
 }
 
-/** Cree le profil du compte connecte. L'organisation vient du domaine de l'email. */
-export async function creerMonMembre(nom: string): Promise<Membre> {
-  const { data, error } = await client().rpc('creer_mon_membre', { nom_complet: nom })
+/**
+ * Cree le profil du compte connecte.
+ *
+ * La maison est choisie par la personne : les deux equipes voient les memes
+ * donnees, elle ne decide que du point de vue d'affichage. Ce qui est
+ * verrouille, c'est l'entree — domaine reconnu, ou code d'acces partage.
+ */
+export async function creerMonMembre(
+  nom: string,
+  organisation: Organisation,
+  code?: string,
+): Promise<Membre> {
+  const { data, error } = await client().rpc('creer_mon_membre', {
+    nom_complet: nom,
+    organisation_choisie: organisation,
+    code: code?.trim() || null,
+  })
   if (error) throw error
   const ligne = (Array.isArray(data) ? data[0] : data) as LigneMembre
   return {
