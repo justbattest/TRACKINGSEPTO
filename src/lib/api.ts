@@ -68,21 +68,15 @@ export async function monMembre(): Promise<Membre | null> {
 }
 
 /**
- * Cree le profil du compte connecte.
+ * Cree le profil du compte connecte : son nom et son equipe.
  *
- * La maison est choisie par la personne : les deux equipes voient les memes
- * donnees, elle ne decide que du point de vue d'affichage. Ce qui est
- * verrouille, c'est l'entree — domaine reconnu, ou code d'acces partage.
+ * L'equipe est choisie par la personne. Ce n'est pas un cloisonnement — les
+ * deux voient les memes donnees — seulement le sens de lecture.
  */
-export async function creerMonMembre(
-  nom: string,
-  organisation: Organisation,
-  code?: string,
-): Promise<Membre> {
+export async function creerMonMembre(nom: string, organisation: Organisation): Promise<Membre> {
   const { data, error } = await client().rpc('creer_mon_membre', {
     nom_complet: nom,
     organisation_choisie: organisation,
-    code: code?.trim() || null,
   })
   if (error) throw error
   const ligne = (Array.isArray(data) ? data[0] : data) as LigneMembre

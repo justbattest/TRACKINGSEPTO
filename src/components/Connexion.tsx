@@ -1,60 +1,34 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, KeyRound, Loader2, MailCheck, Repeat2 } from 'lucide-react'
+import { AlertCircle, Loader2, Repeat2 } from 'lucide-react'
 import { Bouton, Champ, classesSaisie } from '@/components/ui'
 import { creerMonMembre } from '@/lib/api'
 import { client } from '@/lib/supabase'
 import { LIBELLE_ORGANISATION, type Organisation } from '@/lib/types'
 
-type Ecran = 'chargement' | 'inscription' | 'connexion' | 'verifiez' | 'profil'
-
-/** Ce qu'on retient entre l'inscription et le retour depuis le mail de confirmation. */
-const CLE_BROUILLON = 'echange-septodont:inscription'
-
-interface Brouillon {
-  nom: string
-  maison: Organisation
-}
-
-function lireBrouillon(): Brouillon | null {
-  try {
-    const brut = localStorage.getItem(CLE_BROUILLON)
-    return brut ? (JSON.parse(brut) as Brouillon) : null
-  } catch {
-    return null
-  }
-}
+type Ecran = 'chargement' | 'inscription' | 'connexion' | 'profil'
 
 /**
  * Porte d'entree de l'outil.
  *
- * Tout se demande sur un seul ecran : adresse, mot de passe, nom et equipe.
- * Quand la confirmation d'adresse est desactivee — le cas normal pour un outil
- * interne — on entre directement, sans deuxieme etape.
+ * Un seul ecran : nom, adresse, mot de passe, equipe. Pas de confirmation par
+ * mail, pas de code d'acces. L'ecran « profil » ne sert qu'au cas de repli ou
+ * une session existe deja sans identite associee.
  */
 export default function Connexion() {
   const [ecran, setEcran] = useState<Ecran>('chargement')
+  const [nom, setNom] = useState('')
   const [email, setEmail] = useState('')
   const [motDePasse, setMotDePasse] = useState('')
-  const [nom, setNom] = useState('')
   const [maison, setMaison] = useState<Organisation>('alyxa')
-  const [code, setCode] = useState('')
-  const [codeDemande, setCodeDemande] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
   const [occupe, setOccupe] = useState(false)
 
-  // Une session deja ouverte mais sans profil : il ne manque que l'identite.
   useEffect(() => {
     let vivant = true
     void client()
       .auth.getSession()
       .then(({ data }) => {
-        if (!vivant) return
-        const brouillon = lireBrouillon()
-        if (brouillon) {
-          setNom(brouillon.nom)
-          setMaison(brouillon.maison)
-        }
-        setEcran(data.session ? 'profil' : 'inscription')
+        if (vivant) setEcran(data.session ? 'profil' : 'inscription')
       })
     return () => {
       vivant = false
@@ -67,10 +41,7 @@ export default function Connexion() {
     try {
       await action()
     } catch (e) {
-      const message = lisible(e)
-      setErreur(message)
-      // Une adresse hors des domaines reconnus : on propose le code d'acces.
-      if (/pas reconnue|Accès refusé/i.test(message)) setCodeDemande(true)
+      setErreur(lisible(e))
     } finally {
       setOccupe(false)
     }
@@ -78,31 +49,23 @@ export default function Connexion() {
 
   /** Cree le profil puis laisse le magasin recharger sur le changement de session. */
   async function finaliser() {
-    await creerMonMembre(nom, maison, code)
-    localStorage.removeItem(CLE_BROUILLON)
+    await creerMonMembre(nom, maison)
     await client().auth.refreshSession()
   }
 
   const sInscrire = () =>
     tenter(async () => {
-      const { data, error } = await client().auth.signUp({
-        email: email.trim(),
-        password: motDePasse,
-      })
+      const identifiants = { email: email.trim(), password: motDePasse }
+      const { data, error } = await client().auth.signUp(identifiants)
       if (error) throw error
 
-      if (data.session) {
-        // Confirmation d'adresse desactivee : on enchaine sans rien redemander.
-        await finaliser()
-        return
+      // Le compte est confirme d'office cote base. Si l'inscription n'ouvre pas
+      // la session elle-meme, on enchaine simplement sur une connexion.
+      if (!data.session) {
+        const { error: erreurConnexion } = await client().auth.signInWithPassword(identifiants)
+        if (erreurConnexion) throw erreurConnexion
       }
-      // Sinon on garde le nom et l'equipe pour ne pas les redemander au retour.
-      try {
-        localStorage.setItem(CLE_BROUILLON, JSON.stringify({ nom, maison }))
-      } catch {
-        // Stockage indisponible : la personne les ressaisira, sans plus.
-      }
-      setEcran('verifiez')
+      await finaliser()
     })
 
   const seConnecter = () =>
@@ -112,21 +75,7 @@ export default function Connexion() {
         password: motDePasse,
       })
       if (error) throw error
-      // Le profil existe peut-etre deja : le magasin prendra le relais. Sinon,
-      // on le cree avec ce qui a ete saisi a l'inscription.
-      const brouillon = lireBrouillon()
-      if (brouillon && brouillon.nom.trim()) {
-        setNom(brouillon.nom)
-        setMaison(brouillon.maison)
-        try {
-          await creerMonMembre(brouillon.nom, brouillon.maison, code)
-          localStorage.removeItem(CLE_BROUILLON)
-          await client().auth.refreshSession()
-          return
-        } catch {
-          // Echec silencieux : l'ecran de profil prend le relais.
-        }
-      }
+      // Le magasin prend le relais si le profil existe ; sinon on le demande.
       setEcran('profil')
     })
 
@@ -140,25 +89,9 @@ export default function Connexion() {
     )
   }
 
-  if (ecran === 'verifiez') {
-    return (
-      <Cadre>
-        <MailCheck size={32} className="mx-auto text-[var(--color-bien)]" />
-        <h1 className="mt-3 text-center text-[18px] font-semibold">Vérifiez votre boîte mail</h1>
-        <p className="mt-2 text-center text-[13.5px] leading-relaxed text-encre-2">
-          Un lien de confirmation vient d’être envoyé à{' '}
-          <strong className="font-semibold text-encre">{email}</strong>. Cliquez dessus, puis
-          revenez ici pour vous connecter — votre nom et votre équipe sont déjà enregistrés.
-        </p>
-        <Bouton onClick={() => setEcran('connexion')} className="mt-5 w-full justify-center">
-          Retour à la connexion
-        </Bouton>
-      </Cadre>
-    )
-  }
-
   const inscription = ecran === 'inscription'
   const profil = ecran === 'profil'
+  const demandeIdentite = inscription || profil
 
   return (
     <Cadre>
@@ -167,7 +100,7 @@ export default function Connexion() {
       </h1>
       <p className="mt-1.5 text-[13.5px] leading-relaxed text-encre-2">
         {profil
-          ? 'Dernière étape : votre nom et votre équipe.'
+          ? 'Votre nom et votre équipe, et c’est parti.'
           : inscription
             ? 'Le registre des leads échangés entre Alyxa et Septodont.'
             : 'Content de vous revoir.'}
@@ -180,11 +113,24 @@ export default function Connexion() {
           void (profil ? tenter(finaliser) : inscription ? sInscrire() : seConnecter())
         }}
       >
+        {demandeIdentite && (
+          <Champ label="Votre nom">
+            <input
+              autoFocus
+              required
+              value={nom}
+              onChange={(e) => setNom(e.target.value)}
+              placeholder="Prénom Nom"
+              className={classesSaisie}
+            />
+          </Champ>
+        )}
+
         {!profil && (
           <>
             <Champ label="Adresse email">
               <input
-                autoFocus
+                autoFocus={!demandeIdentite}
                 required
                 type="email"
                 autoComplete="email"
@@ -208,71 +154,36 @@ export default function Connexion() {
           </>
         )}
 
-        {/* Nom et equipe : demandes des l'inscription, jamais deux fois. */}
-        {(inscription || profil) && (
-          <>
-            <Champ label="Votre nom">
-              <input
-                autoFocus={profil}
-                required
-                value={nom}
-                onChange={(e) => setNom(e.target.value)}
-                placeholder="Prénom Nom"
-                className={classesSaisie}
-              />
-            </Champ>
-
-            <Champ
-              label="Votre équipe"
-              aide="Elle détermine le sens de lecture : ce que vous envoyez, ce que vous recevez."
-            >
-              <div className="flex gap-2">
-                {(['alyxa', 'septodont'] as Organisation[]).map((org) => (
-                  <button
-                    key={org}
-                    type="button"
-                    onClick={() => setMaison(org)}
-                    aria-pressed={maison === org}
-                    className={`flex-1 rounded-lg border px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
-                      maison === org
-                        ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
-                        : 'border-bord-fort text-encre-2 hover:bg-fond'
-                    }`}
-                  >
-                    {LIBELLE_ORGANISATION[org]}
-                  </button>
-                ))}
-              </div>
-            </Champ>
-
-            {codeDemande && (
-              <Champ
-                label="Code d’accès"
-                aide="Votre adresse n’est pas sur un domaine reconnu. Demandez le code à votre contact."
-              >
-                <div className="relative">
-                  <KeyRound
-                    size={15}
-                    className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3"
-                  />
-                  <input
-                    autoFocus
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    placeholder="ALYXA-SEPTO-XXXXXX"
-                    className={`${classesSaisie} pl-9 uppercase`}
-                  />
-                </div>
-              </Champ>
-            )}
-          </>
+        {demandeIdentite && (
+          <Champ
+            label="Votre équipe"
+            aide="Elle détermine le sens de lecture : ce que vous envoyez, ce que vous recevez."
+          >
+            <div className="flex gap-2">
+              {(['alyxa', 'septodont'] as Organisation[]).map((org) => (
+                <button
+                  key={org}
+                  type="button"
+                  onClick={() => setMaison(org)}
+                  aria-pressed={maison === org}
+                  className={`flex-1 rounded-lg border px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
+                    maison === org
+                      ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
+                      : 'border-bord-fort text-encre-2 hover:bg-fond'
+                  }`}
+                >
+                  {LIBELLE_ORGANISATION[org]}
+                </button>
+              ))}
+            </div>
+          </Champ>
         )}
 
         <Erreur message={erreur} />
         <Bouton
           type="submit"
           variante="primaire"
-          disabled={occupe || ((inscription || profil) && !nom.trim())}
+          disabled={occupe || (demandeIdentite && !nom.trim())}
           className="w-full justify-center py-2.5"
         >
           {occupe ? (
@@ -343,8 +254,6 @@ function lisible(e: unknown): string {
     return 'Un compte existe déjà avec cette adresse. Connectez-vous.'
   if (/password should be at least/i.test(brut))
     return 'Le mot de passe doit faire au moins 8 caractères.'
-  if (/email not confirmed/i.test(brut))
-    return 'Confirmez d’abord votre adresse via le lien reçu par mail.'
   if (/rate limit|too many/i.test(brut))
     return 'Trop de tentatives. Réessayez dans quelques minutes.'
   return brut || 'Une erreur est survenue.'
