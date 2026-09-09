@@ -116,31 +116,19 @@ est idempotent.
 
 ### 2. Qui peut entrer
 
-Deux portes, une seule barrière :
+N'importe qui connaissant l'adresse du site. L'inscription ne demande qu'un
+nom, une adresse email, un mot de passe et une équipe — pas de confirmation par
+mail, pas de code d'accès, pas de restriction de domaine.
 
-1. **Un domaine reconnu.** Le schéma amorce `alyxa.fr`, `septodont.com` et
-   `septodont.fr`. Pour en ajouter un :
+C'est un choix assumé : l'outil est interne à deux équipes qui se connaissent,
+sur une URL non publiée. Si le besoin d'un filtrage apparaît, le point d'entrée
+est la fonction `creer_mon_membre` : c'est le seul endroit où un profil se crée,
+et donc le seul endroit à verrouiller.
 
-   ```sql
-   insert into domaines_autorises (domaine, organisation)
-   values ('mondomaine.fr', 'septodont');
-   ```
-
-2. **Le code d'accès partagé**, pour toute adresse hors de cette liste. Il est
-   généré à la création de la base et se lit — ou se change — ainsi :
-
-   ```sql
-   select valeur from parametres where cle = 'code_acces';
-   update parametres set valeur = 'NOUVEAU-CODE' where cle = 'code_acces';
-   ```
-
-Sans l'un ou l'autre, un compte peut exister mais aucun profil ne peut être
-créé : la personne ne voit rien.
-
-L'équipe — Alyxa ou Septodont — est en revanche **choisie librement** à
-l'inscription. Ce n'est pas un cloisonnement : les deux voient les mêmes leads
-et les mêmes discussions. Elle ne détermine que le sens de lecture, c'est-à-dire
-ce qui s'affiche comme « envoyé » et comme « reçu ».
+L'équipe — Alyxa ou Septodont — est choisie librement. Ce n'est pas un
+cloisonnement : les deux voient les mêmes leads et les mêmes discussions. Elle
+ne détermine que le sens de lecture, c'est-à-dire ce qui s'affiche comme
+« envoyé » et comme « reçu ».
 
 ### 3. Déployer sur Netlify
 
@@ -156,29 +144,27 @@ build et le dossier de publication. Il reste à renseigner, dans
 La clé `anon` est publique par nature : elle ne donne accès à rien sans compte,
 la sécurité repose entièrement sur les règles au niveau des lignes.
 
-### 4. Autoriser l'adresse du site
+### 4. Site en service
 
-Dans Supabase > Authentication > URL Configuration, mettre l'URL Netlify en
-**Site URL** et en **Redirect URL**, sinon les liens de confirmation d'adresse
-renvoient vers `localhost`.
+L'application tourne sur **https://septotracking.netlify.app**, adossée au
+projet Supabase `echange-septodont` (organisation Alyxa, région eu-west-3).
 
 ## Sécurité
 
 Le schéma pose la sécurité au niveau des lignes :
 
-- **L'entrée est verrouillée** par le domaine de l'adresse ou par le code
-  d'accès. Sans l'un des deux, aucun profil ne peut être créé, donc rien n'est
-  visible.
+- **L'entrée est ouverte** : voir « Qui peut entrer » plus haut. En revanche un
+  compte sans profil ne voit rien, et le profil ne se crée qu'en son propre nom.
 - **Tout membre voit tous les leads et toutes les discussions.** C'est le principe
   du partenariat : chacun doit savoir ce que son contact est devenu.
 - **On n'écrit qu'en son propre nom**, et le fil est en insertion seule : aucune
   règle ne permet de modifier ou d'effacer un message déjà posté.
 - **Les états de lecture sont privés** à chaque personne.
 
-Ces règles sont vérifiées en base, pas seulement dans l'application : douze
-contrôles ont été passés en simulant deux sessions authentifiées — compte sans
-profil aveugle, domaine non autorisé refusé, transmission au nom d'autrui
-refusée, fil inaltérable, lectures cloisonnées.
+Ces règles sont vérifiées en base, pas seulement dans l'application : un compte
+sans profil ne voit rien, on ne peut pas transmettre au nom d'un autre membre,
+un message posté n'est ni modifiable ni supprimable, et les états de lecture
+restent cloisonnés.
 
 ## Si l'application affiche « Mode démonstration »
 
