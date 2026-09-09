@@ -1,10 +1,8 @@
 -- ============================================================================
--- Échange de leads Alyxa <-> Septodont — schema de base
+-- Échange de leads Alyxa <-> Septodont — schema complet
 --
--- A executer tel quel dans l'editeur SQL d'un projet Supabase.
--- L'application fonctionne sans lui (mode demonstration, stockage navigateur) ;
--- ce schema est la cible pour passer en base reelle, partagee entre les deux
--- equipes.
+-- A executer d'un bloc dans l'editeur SQL du projet Supabase.
+-- Idempotent : on peut le rejouer sans casser une base existante.
 -- ============================================================================
 
 create extension if not exists "pgcrypto";
@@ -13,22 +11,42 @@ create extension if not exists "pgcrypto";
 -- Referentiel
 -- ----------------------------------------------------------------------------
 
-create table regions (
+create table if not exists regions (
   id  text primary key,
   nom text not null
 );
 
-create type organisation as enum ('alyxa', 'septodont');
+do $$ begin
+  create type organisation as enum ('alyxa', 'septodont');
+exception when duplicate_object then null; end $$;
+
+/*
+ * Qui a le droit de creer un compte, et dans quelle maison.
+ *
+ * L'organisation n'est PAS choisie par la personne qui s'inscrit : elle est
+ * deduite du domaine de son adresse professionnelle. Personne ne peut se
+ * declarer Alyxa avec une adresse Septodont, ni l'inverse, ni entrer avec une
+ * adresse personnelle.
+ */
+create table if not exists domaines_autorises (
+  domaine      text primary key,
+  organisation organisation not null
+);
+
+insert into domaines_autorises (domaine, organisation) values
+  ('alyxa.fr', 'alyxa'),
+  ('septodont.com', 'septodont'),
+  ('septodont.fr', 'septodont')
+on conflict (domaine) do nothing;
 
 /*
  * Une personne qui utilise l'outil, des deux cotes du partenariat.
- * `utilisateur_id` relie le membre a son compte Supabase ; il reste vide tant
- * que la personne n'a pas ouvert de session.
+ * Une ligne par compte authentifie ; sans elle, on ne voit rien.
  */
-create table membres (
+create table if not exists membres (
   id             uuid primary key default gen_random_uuid(),
-  utilisateur_id uuid unique references auth.users(id) on delete set null,
-  nom            text not null,
+  utilisateur_id uuid not null unique references auth.users(id) on delete cascade,
+  nom            text not null check (length(trim(nom)) > 0),
   organisation   organisation not null,
   -- Couleur d'avatar : elle identifie l'auteur dans les discussions.
   couleur        text not null,
@@ -36,41 +54,42 @@ create table membres (
   cree_le        timestamptz not null default now()
 );
 
-create index membres_organisation_idx on membres(organisation);
+create index if not exists membres_organisation_idx on membres(organisation);
 
 -- ----------------------------------------------------------------------------
 -- Leads
 -- ----------------------------------------------------------------------------
 
--- Sens de circulation, vu depuis Alyxa.
-create type sens_lead as enum ('recu', 'envoye');
+do $$ begin
+  create type statut_lead as enum ('transmis', 'contacte', 'rdv', 'converti', 'sans_suite');
+exception when duplicate_object then null; end $$;
 
-create type statut_lead as enum ('transmis', 'contacte', 'rdv', 'converti', 'sans_suite');
-
-create table leads (
-  id               uuid primary key default gen_random_uuid(),
-  sens             sens_lead not null,
-  structure        text not null,
-  contact          text not null,
-  telephone        text,
-  email            text,
-  ville            text,
-  code_postal      text,
-  region_id        text references regions(id),
-  motif            text not null,
-  transmis_par     uuid not null references membres(id),
+create table if not exists leads (
+  id                uuid primary key default gen_random_uuid(),
+  -- Maison qui a transmis le lead. Absolu : le sens « envoyé » ou « reçu » se
+  -- deduit de qui regarde, jamais stocke.
+  origine           organisation not null,
+  structure         text not null check (length(trim(structure)) > 0),
+  contact           text not null check (length(trim(contact)) > 0),
+  telephone         text,
+  email             text,
+  ville             text,
+  code_postal       text,
+  region_id         text references regions(id),
+  motif             text not null,
+  transmis_par      uuid not null references membres(id),
   -- Horodatage de transmission : la reference en cas de desaccord sur un volume.
-  transmis_le      timestamptz not null default now(),
-  statut           statut_lead not null default 'transmis',
+  transmis_le       timestamptz not null default now(),
+  statut            statut_lead not null default 'transmis',
   -- Denormalise pour trier la liste sans agreger le fil a chaque affichage.
   dernier_mouvement timestamptz not null default now()
 );
 
-create index leads_sens_idx       on leads(sens);
-create index leads_statut_idx     on leads(statut);
-create index leads_region_idx     on leads(region_id);
-create index leads_transmis_idx   on leads(transmis_le desc);
-create index leads_mouvement_idx  on leads(dernier_mouvement desc);
+create index if not exists leads_origine_idx   on leads(origine);
+create index if not exists leads_statut_idx    on leads(statut);
+create index if not exists leads_region_idx    on leads(region_id);
+create index if not exists leads_transmis_idx  on leads(transmis_le desc);
+create index if not exists leads_mouvement_idx on leads(dernier_mouvement desc);
 
 -- ----------------------------------------------------------------------------
 -- Le fil de chaque lead
@@ -79,17 +98,19 @@ create index leads_mouvement_idx  on leads(dernier_mouvement desc);
 -- permet de relire l'histoire complete d'un lead dans l'ordre.
 -- ----------------------------------------------------------------------------
 
-create type type_evenement as enum ('statut', 'message');
+do $$ begin
+  create type type_evenement as enum ('statut', 'message');
+exception when duplicate_object then null; end $$;
 
-create table evenements (
-  id        uuid primary key default gen_random_uuid(),
-  lead_id   uuid not null references leads(id) on delete cascade,
-  auteur_id uuid not null references membres(id),
-  type      type_evenement not null,
+create table if not exists evenements (
+  id         uuid primary key default gen_random_uuid(),
+  lead_id    uuid not null references leads(id) on delete cascade,
+  auteur_id  uuid not null references membres(id),
+  type       type_evenement not null,
   -- Renseigne pour un changement de statut.
-  statut    statut_lead,
+  statut     statut_lead,
   -- Renseigne pour un message.
-  texte     text,
+  texte      text,
   survenu_le timestamptz not null default now(),
   constraint contenu_coherent check (
     (type = 'statut'  and statut is not null) or
@@ -97,11 +118,11 @@ create table evenements (
   )
 );
 
-create index evenements_lead_idx on evenements(lead_id, survenu_le);
+create index if not exists evenements_lead_idx on evenements(lead_id, survenu_le);
 
--- Toute entree au fil met a jour le statut et la date de dernier mouvement.
+-- Toute entree au fil met a jour le statut du lead et sa date de mouvement.
 create or replace function refleter_evenement() returns trigger
-language plpgsql as $$
+language plpgsql security definer set search_path = public as $$
 begin
   update leads
      set dernier_mouvement = greatest(dernier_mouvement, new.survenu_le),
@@ -111,6 +132,7 @@ begin
 end;
 $$;
 
+drop trigger if exists evenements_refletent_le_lead on evenements;
 create trigger evenements_refletent_le_lead
   after insert on evenements
   for each row execute function refleter_evenement();
@@ -122,42 +144,81 @@ create trigger evenements_refletent_le_lead
 -- C'est ce qui alimente les pastilles de messages non lus.
 -- ----------------------------------------------------------------------------
 
-create table lectures (
-  membre_id  uuid not null references membres(id) on delete cascade,
-  lead_id    uuid not null references leads(id) on delete cascade,
-  lu_jusqua  timestamptz not null default now(),
+create table if not exists lectures (
+  membre_id uuid not null references membres(id) on delete cascade,
+  lead_id   uuid not null references leads(id) on delete cascade,
+  lu_jusqua timestamptz not null default now(),
   primary key (membre_id, lead_id)
 );
 
--- Nombre de messages non lus par lead, pour le membre connecte.
-create or replace view non_lus as
-  select m.id as membre_id,
-         l.id as lead_id,
-         count(e.id) as messages
-    from membres m
-    cross join leads l
-    left join lectures lu on lu.membre_id = m.id and lu.lead_id = l.id
-    left join evenements e
-           on e.lead_id = l.id
-          and e.type = 'message'
-          and e.auteur_id <> m.id
-          and (lu.lu_jusqua is null or e.survenu_le > lu.lu_jusqua)
-   group by m.id, l.id;
+-- ----------------------------------------------------------------------------
+-- Creation de compte
+--
+-- A la premiere connexion, l'application appelle creer_mon_membre(nom).
+-- L'organisation vient du domaine de l'adresse, jamais du formulaire, et la
+-- couleur est prise dans la palette en evitant celles deja utilisees.
+-- ----------------------------------------------------------------------------
+
+create or replace function creer_mon_membre(nom_complet text)
+returns membres
+language plpgsql security definer set search_path = public as $$
+declare
+  v_email   text;
+  v_domaine text;
+  v_org     organisation;
+  v_couleur text;
+  v_membre  membres;
+  palette   text[] := array[
+    '#4a3aa7', '#0f7a55', '#b8461c', '#1c5cab',
+    '#96407a', '#2f6f7d', '#8a6d1f', '#a33a3a'
+  ];
+begin
+  if auth.uid() is null then
+    raise exception 'Vous devez être connecté.';
+  end if;
+
+  select email into v_email from auth.users where id = auth.uid();
+  v_domaine := lower(split_part(v_email, '@', 2));
+
+  select organisation into v_org from domaines_autorises where domaine = v_domaine;
+  if v_org is null then
+    raise exception 'Le domaine % n''est pas autorisé sur cet outil.', v_domaine
+      using hint = 'Demandez à un administrateur d''ajouter votre domaine.';
+  end if;
+
+  -- Premiere couleur libre ; on boucle sur la palette si tout est pris.
+  select p into v_couleur
+    from unnest(palette) as p
+   where p not in (select couleur from membres)
+   limit 1;
+  if v_couleur is null then
+    v_couleur := palette[1 + (select count(*) from membres) % array_length(palette, 1)];
+  end if;
+
+  insert into membres (utilisateur_id, nom, organisation, couleur)
+  values (auth.uid(), trim(nom_complet), v_org, v_couleur)
+  on conflict (utilisateur_id) do update set nom = excluded.nom
+  returning * into v_membre;
+
+  return v_membre;
+end;
+$$;
 
 -- ----------------------------------------------------------------------------
 -- Securite
 --
--- L'echange est un espace partage entre les deux maisons : tout membre
--- authentifie voit tous les leads et toutes les discussions. C'est le principe
--- meme du partenariat — chacun doit savoir ce que son contact est devenu.
--- Ce qui reste prive, ce sont les etats de lecture de chacun.
+-- L'echange est un espace partage entre les deux maisons : tout membre voit
+-- tous les leads et toutes les discussions. C'est le principe meme du
+-- partenariat — chacun doit savoir ce que son contact est devenu. Ce qui reste
+-- prive, ce sont les etats de lecture de chacun.
 -- ----------------------------------------------------------------------------
 
-alter table regions    enable row level security;
-alter table membres    enable row level security;
-alter table leads      enable row level security;
-alter table evenements enable row level security;
-alter table lectures   enable row level security;
+alter table regions             enable row level security;
+alter table domaines_autorises  enable row level security;
+alter table membres             enable row level security;
+alter table leads               enable row level security;
+alter table evenements          enable row level security;
+alter table lectures            enable row level security;
 
 -- Le membre correspondant a la session en cours.
 create or replace function mon_membre() returns uuid
@@ -165,34 +226,64 @@ language sql stable security definer set search_path = public as $$
   select id from membres where utilisateur_id = auth.uid() and actif;
 $$;
 
+drop policy if exists "referentiel lisible" on regions;
 create policy "referentiel lisible" on regions
   for select to authenticated using (true);
 
+drop policy if exists "annuaire lisible" on membres;
 create policy "annuaire lisible" on membres
   for select to authenticated using (true);
-create policy "chacun met a jour sa fiche" on membres
+
+drop policy if exists "chacun met a jour son nom" on membres;
+create policy "chacun met a jour son nom" on membres
   for update to authenticated using (utilisateur_id = auth.uid());
 
+drop policy if exists "leads lisibles par les deux maisons" on leads;
 create policy "leads lisibles par les deux maisons" on leads
   for select to authenticated using (mon_membre() is not null);
+
+drop policy if exists "leads ajoutes par un membre" on leads;
 create policy "leads ajoutes par un membre" on leads
   for insert to authenticated with check (transmis_par = mon_membre());
+
+drop policy if exists "leads modifiables par un membre" on leads;
 create policy "leads modifiables par un membre" on leads
   for update to authenticated using (mon_membre() is not null);
+
+drop policy if exists "leads supprimables par celui qui les a transmis" on leads;
 create policy "leads supprimables par celui qui les a transmis" on leads
   for delete to authenticated using (transmis_par = mon_membre());
 
+drop policy if exists "fil lisible par les deux maisons" on evenements;
 create policy "fil lisible par les deux maisons" on evenements
   for select to authenticated using (mon_membre() is not null);
--- On ne peut ecrire qu'en son propre nom, et le passe reste intouchable.
+
+-- On ecrit toujours en son propre nom, et le passe reste intouchable :
+-- aucune politique d'update ni de delete sur le fil.
+drop policy if exists "on ecrit en son nom" on evenements;
 create policy "on ecrit en son nom" on evenements
   for insert to authenticated with check (auteur_id = mon_membre());
 
+drop policy if exists "chacun gere ses lectures" on lectures;
 create policy "chacun gere ses lectures" on lectures
-  for all to authenticated using (membre_id = mon_membre()) with check (membre_id = mon_membre());
+  for all to authenticated
+  using (membre_id = mon_membre())
+  with check (membre_id = mon_membre());
 
 -- ----------------------------------------------------------------------------
--- Amorcage
+-- Temps reel : les messages arrivent sans rechargement.
+-- ----------------------------------------------------------------------------
+
+do $$ begin
+  alter publication supabase_realtime add table leads;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table evenements;
+exception when duplicate_object then null; end $$;
+
+-- ----------------------------------------------------------------------------
+-- Amorcage du referentiel
 -- ----------------------------------------------------------------------------
 
 insert into regions (id, nom) values
@@ -201,4 +292,4 @@ insert into regions (id, nom) values
   ('ge', 'Grand Est'), ('bzh', 'Bretagne'), ('pdl', 'Pays de la Loire'),
   ('nor', 'Normandie'), ('cvl', 'Centre-Val de Loire'),
   ('bfc', 'Bourgogne-Franche-Comté'), ('cor', 'Corse')
-on conflict do nothing;
+on conflict (id) do nothing;

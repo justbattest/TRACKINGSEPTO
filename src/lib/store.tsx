@@ -1,11 +1,24 @@
 /**
- * Etat applicatif unique.
+ * Etat applicatif unique, avec deux implantations derriere la meme interface.
  *
- * En mode demonstration, tout vit dans le navigateur (localStorage) : l'outil
- * fonctionne sans compte ni installation. Quand la base sera branchee, seules
- * les fonctions de ce fichier changeront — les pages resteront identiques.
+ * - Hors ligne (aucune variable d'environnement) : jeu de demonstration
+ *   conserve dans le navigateur. L'outil s'essaie sans compte ni installation.
+ * - En ligne : base Supabase partagee par les deux equipes, avec temps reel.
+ *
+ * Les pages ne savent pas laquelle des deux tourne.
  */
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import * as api from './api'
+import { enLigne, supabase } from './supabase'
 import { genererDemo, MEMBRES } from '@/data/seed'
 import {
   COULEURS_MEMBRE,
@@ -18,31 +31,87 @@ import {
   type Statut,
 } from './types'
 
-const CLE_STOCKAGE = 'echange-septodont:v1'
+const CLE_STOCKAGE = 'echange-septodont:v2'
 
 /** Champs saisis a la creation d'un lead. */
 export type NouveauLead = Omit<Lead, 'id' | 'statut' | 'fil' | 'transmisLe'> & {
   transmisLe?: string
 }
 
-interface EtatPersiste {
+interface Donnees {
   leads: Lead[]
   regions: Region[]
   membres: Membre[]
-  /** Membre connecte. Vide tant que personne ne s'est identifie. */
   membreId: string
   /** Date de derniere lecture du fil, par lead : sert a compter les non-lus. */
   lectures: Record<string, string>
 }
 
-function etatInitial(): EtatPersiste {
+export interface Contexte extends Donnees {
+  /** Membre connecte, ou undefined tant que personne ne s'est identifie. */
+  moi: Membre | undefined
+  /** Maison du membre connecte : toute la lecture de l'echange en depend. */
+  maMaison: Organisation
+  /** La base partagee est-elle branchee ? */
+  enLigne: boolean
+  chargement: boolean
+  erreur: string | null
+  regionDe: (id: string) => string
+  leadDe: (id: string) => Lead | undefined
+  membreDe: (id: string) => Membre | undefined
+  ajouterLead: (lead: NouveauLead, message?: string) => void
+  changerStatut: (id: string, statut: Statut) => void
+  envoyerMessage: (id: string, texte: string) => void
+  marquerLu: (id: string) => void
+  supprimerLead: (id: string) => void
+  /** Bascule de persona — mode démonstration uniquement. */
+  seConnecter: (membreId: string) => void
+  /** Création d'un profil local — mode démonstration uniquement. */
+  creerMembre: (nom: string, organisation: Organisation) => void
+  reinitialiser: () => void
+  seDeconnecter: () => Promise<void>
+}
+
+const Ctx = createContext<Contexte | null>(null)
+
+export function useStore(): Contexte {
+  const ctx = useContext(Ctx)
+  if (!ctx) throw new Error('useStore doit être utilisé dans <Fournisseur>')
+  return ctx
+}
+
+/** Assemble la partie commune du contexte a partir des donnees chargees. */
+function indexer(donnees: Donnees) {
+  const parRegion = new Map(donnees.regions.map((r) => [r.id, r.nom]))
+  const parLead = new Map(donnees.leads.map((l) => [l.id, l]))
+  const parMembre = new Map(donnees.membres.map((m) => [m.id, m]))
+  const moi = parMembre.get(donnees.membreId)
+  return {
+    moi,
+    maMaison: moi?.organisation ?? ('alyxa' as Organisation),
+    regionDe: (id: string) => parRegion.get(id) ?? '—',
+    leadDe: (id: string) => parLead.get(id),
+    membreDe: (id: string) => parMembre.get(id),
+  }
+}
+
+export function Fournisseur({ children }: { children: ReactNode }) {
+  return enLigne ? <FournisseurDistant>{children}</FournisseurDistant> : <FournisseurLocal>{children}</FournisseurLocal>
+}
+
+// ---------------------------------------------------------------------------
+// Mode demonstration : tout vit dans le navigateur.
+// ---------------------------------------------------------------------------
+
+function etatLocalInitial(): Donnees {
   try {
     const brut = localStorage.getItem(CLE_STOCKAGE)
-    if (brut) return JSON.parse(brut) as EtatPersiste
+    if (brut) return JSON.parse(brut) as Donnees
   } catch {
     // Stockage indisponible (navigation privee) : on repart de la demo.
   }
-  return { ...genererDemo(), membreId: '', lectures: {} }
+  const demo = genererDemo()
+  return { ...demo, membreId: '', lectures: {} }
 }
 
 /**
@@ -63,49 +132,24 @@ function lecturesAJour(leads: Lead[], maintenant: Date = new Date()): Record<str
   return lectures
 }
 
-function persister(etat: EtatPersiste) {
-  try {
-    localStorage.setItem(CLE_STOCKAGE, JSON.stringify(etat))
-  } catch {
-    // Echec silencieux : l'app reste utilisable pour la session en cours.
-  }
-}
+function FournisseurLocal({ children }: { children: ReactNode }) {
+  const [etat, setEtat] = useState<Donnees>(etatLocalInitial)
 
-export interface Contexte extends EtatPersiste {
-  /** Membre connecte, ou undefined tant que personne ne s'est identifie. */
-  moi: Membre | undefined
-  regionDe: (id: string) => string
-  leadDe: (id: string) => Lead | undefined
-  membreDe: (id: string) => Membre | undefined
-  membresDe: (organisation: Organisation) => Membre[]
-  ajouterLead: (lead: NouveauLead, message?: string) => void
-  modifierLead: (id: string, champs: Partial<NouveauLead>) => void
-  changerStatut: (id: string, statut: Statut) => void
-  envoyerMessage: (id: string, texte: string) => void
-  marquerLu: (id: string) => void
-  supprimerLead: (id: string) => void
-  seConnecter: (membreId: string) => void
-  creerMembre: (nom: string, organisation: Organisation) => void
-  reinitialiser: () => void
-}
-
-const Ctx = createContext<Contexte | null>(null)
-
-export function Fournisseur({ children }: { children: ReactNode }) {
-  const [etat, setEtat] = useState<EtatPersiste>(etatInitial)
-
-  const modifier = useCallback((suite: (e: EtatPersiste) => EtatPersiste) => {
+  const modifier = useCallback((suite: (e: Donnees) => Donnees) => {
     setEtat((actuel) => {
       const suivant = suite(actuel)
-      persister(suivant)
+      try {
+        localStorage.setItem(CLE_STOCKAGE, JSON.stringify(suivant))
+      } catch {
+        // Echec silencieux : l'app reste utilisable pour la session en cours.
+      }
       return suivant
     })
   }, [])
 
-  /** Ajoute une entree au fil d'un lead sans jamais toucher aux precedentes. */
   const ajouterAuFil = useCallback(
-    (etatCourant: EtatPersiste, id: string, entree: Omit<Evenement, 'id' | 'date' | 'auteurId'>, statut?: Statut): Lead[] =>
-      etatCourant.leads.map((l) =>
+    (e: Donnees, id: string, entree: Omit<Evenement, 'id' | 'date' | 'auteurId'>, statut?: Statut): Lead[] =>
+      e.leads.map((l) =>
         l.id === id
           ? {
               ...l,
@@ -116,7 +160,7 @@ export function Fournisseur({ children }: { children: ReactNode }) {
                   ...entree,
                   id: `e${Date.now()}-${l.fil.length}`,
                   date: new Date().toISOString(),
-                  auteurId: etatCourant.membreId,
+                  auteurId: e.membreId,
                 },
               ],
             }
@@ -125,18 +169,13 @@ export function Fournisseur({ children }: { children: ReactNode }) {
     [],
   )
 
-  const valeur = useMemo<Contexte>(() => {
-    const parRegion = new Map(etat.regions.map((r) => [r.id, r.nom]))
-    const parLead = new Map(etat.leads.map((l) => [l.id, l]))
-    const parMembre = new Map(etat.membres.map((m) => [m.id, m]))
-
-    return {
+  const valeur = useMemo<Contexte>(
+    () => ({
       ...etat,
-      moi: parMembre.get(etat.membreId),
-      regionDe: (id) => parRegion.get(id) ?? '—',
-      leadDe: (id) => parLead.get(id),
-      membreDe: (id) => parMembre.get(id),
-      membresDe: (organisation) => etat.membres.filter((m) => m.organisation === organisation),
+      ...indexer(etat),
+      enLigne: false,
+      chargement: false,
+      erreur: null,
 
       ajouterLead: (lead, message) =>
         modifier((e) => {
@@ -144,7 +183,6 @@ export function Fournisseur({ children }: { children: ReactNode }) {
           const fil: Evenement[] = [
             { id: `e${Date.now()}-0`, date: transmisLe, type: 'statut', statut: 'transmis', auteurId: e.membreId },
           ]
-          // Le mot d'accompagnement ouvre la discussion des la transmission.
           if (message?.trim()) {
             fil.push({
               id: `e${Date.now()}-1`,
@@ -154,15 +192,8 @@ export function Fournisseur({ children }: { children: ReactNode }) {
               auteurId: e.membreId,
             })
           }
-          const nouveau: Lead = { ...lead, transmisLe, id: `l${Date.now()}`, statut: 'transmis', fil }
-          return { ...e, leads: [nouveau, ...e.leads] }
+          return { ...e, leads: [{ ...lead, transmisLe, id: `l${Date.now()}`, statut: 'transmis', fil }, ...e.leads] }
         }),
-
-      modifierLead: (id, champs) =>
-        modifier((e) => ({
-          ...e,
-          leads: e.leads.map((l) => (l.id === id ? { ...l, ...champs } : l)),
-        })),
 
       changerStatut: (id, statut) =>
         modifier((e) => ({ ...e, leads: ajouterAuFil(e, id, { type: 'statut', statut }, statut) })),
@@ -170,7 +201,6 @@ export function Fournisseur({ children }: { children: ReactNode }) {
       envoyerMessage: (id, texte) =>
         modifier((e) => {
           const leads = ajouterAuFil(e, id, { type: 'message', texte: texte.trim() })
-          // Ecrire vaut lecture : on ne se signale pas ses propres messages.
           const lead = leads.find((l) => l.id === id)
           return {
             ...e,
@@ -190,23 +220,16 @@ export function Fournisseur({ children }: { children: ReactNode }) {
 
       supprimerLead: (id) => modifier((e) => ({ ...e, leads: e.leads.filter((l) => l.id !== id) })),
 
-      // On arrive a jour : seuls les messages postes apres la connexion sont signales.
-      seConnecter: (membreId) =>
-        modifier((e) => ({ ...e, membreId, lectures: lecturesAJour(e.leads) })),
+      seConnecter: (membreId) => modifier((e) => ({ ...e, membreId, lectures: lecturesAJour(e.leads) })),
 
       creerMembre: (nom, organisation) =>
         modifier((e) => {
-          // Couleur suivante non utilisee, pour que deux personnes ne se ressemblent pas.
           const prises = new Set(e.membres.map((m) => m.couleur))
           const couleur =
-            COULEURS_MEMBRE.find((c) => !prises.has(c)) ?? COULEURS_MEMBRE[e.membres.length % COULEURS_MEMBRE.length]
+            COULEURS_MEMBRE.find((c) => !prises.has(c)) ??
+            COULEURS_MEMBRE[e.membres.length % COULEURS_MEMBRE.length]
           const membre: Membre = { id: `m${Date.now()}`, nom: nom.trim(), organisation, couleur }
-          return {
-            ...e,
-            membres: [...e.membres, membre],
-            membreId: membre.id,
-            lectures: lecturesAJour(e.leads),
-          }
+          return { ...e, membres: [...e.membres, membre], membreId: membre.id, lectures: lecturesAJour(e.leads) }
         }),
 
       reinitialiser: () =>
@@ -214,14 +237,144 @@ export function Fournisseur({ children }: { children: ReactNode }) {
           const demo = genererDemo()
           return { ...demo, membreId: e.membreId || MEMBRES[0].id, lectures: lecturesAJour(demo.leads) }
         }),
-    }
-  }, [etat, modifier, ajouterAuFil])
+
+      seDeconnecter: async () => modifier((e) => ({ ...e, membreId: '' })),
+    }),
+    [etat, modifier, ajouterAuFil],
+  )
 
   return <Ctx.Provider value={valeur}>{children}</Ctx.Provider>
 }
 
-export function useStore(): Contexte {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error('useStore doit être utilisé dans <Fournisseur>')
-  return ctx
+// ---------------------------------------------------------------------------
+// Mode partage : base Supabase, avec temps reel.
+// ---------------------------------------------------------------------------
+
+const VIDE: Donnees = { leads: [], regions: [], membres: [], membreId: '', lectures: {} }
+
+function FournisseurDistant({ children }: { children: ReactNode }) {
+  const [donnees, setDonnees] = useState<Donnees>(VIDE)
+  const [chargement, setChargement] = useState(true)
+  const [erreur, setErreur] = useState<string | null>(null)
+  const membreRef = useRef('')
+  const attente = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Recharge tout. Les volumes sont petits : c'est plus sur qu'un patch partiel. */
+  const rafraichir = useCallback(async () => {
+    const membreId = membreRef.current
+    if (!membreId) return
+    try {
+      const instantane = await api.charger(membreId)
+      setDonnees({ ...instantane, membreId })
+      setErreur(null)
+    } catch (e) {
+      setErreur(messageErreur(e))
+    }
+  }, [])
+
+  /** Regroupe les rafraichissements rapproches en un seul appel. */
+  const rafraichirBientot = useCallback(() => {
+    if (attente.current) clearTimeout(attente.current)
+    attente.current = setTimeout(() => void rafraichir(), 250)
+  }, [rafraichir])
+
+  // Suit la session : connexion, deconnexion, rafraichissement de jeton.
+  useEffect(() => {
+    let vivant = true
+
+    async function synchroniser() {
+      try {
+        const membre = await api.monMembre()
+        if (!vivant) return
+        membreRef.current = membre?.id ?? ''
+        if (!membre) {
+          setDonnees(VIDE)
+          setChargement(false)
+          return
+        }
+        const instantane = await api.charger(membre.id)
+        if (!vivant) return
+        setDonnees({ ...instantane, membreId: membre.id })
+        setErreur(null)
+      } catch (e) {
+        if (vivant) setErreur(messageErreur(e))
+      } finally {
+        if (vivant) setChargement(false)
+      }
+    }
+
+    void synchroniser()
+    const { data } = supabase!.auth.onAuthStateChange(() => {
+      setChargement(true)
+      void synchroniser()
+    })
+    return () => {
+      vivant = false
+      data.subscription.unsubscribe()
+    }
+  }, [])
+
+  // Temps reel : un message envoye par l'autre equipe arrive sans rechargement.
+  useEffect(() => {
+    if (!donnees.membreId) return
+    return api.ecouter(rafraichirBientot)
+  }, [donnees.membreId, rafraichirBientot])
+
+  /** Enchaine une ecriture distante puis un rechargement, en signalant l'echec. */
+  const agir = useCallback(
+    (operation: () => Promise<void>) => {
+      void operation()
+        .then(() => rafraichir())
+        .catch((e) => setErreur(messageErreur(e)))
+    },
+    [rafraichir],
+  )
+
+  const valeur = useMemo<Contexte>(() => {
+    const index = indexer(donnees)
+    const moiId = donnees.membreId
+    return {
+      ...donnees,
+      ...index,
+      enLigne: true,
+      chargement,
+      erreur,
+
+      ajouterLead: (lead, message) =>
+        agir(() => api.creerLead({ ...lead, transmisParId: moiId }, message)),
+
+      changerStatut: (id, statut) => agir(() => api.changerStatut(id, moiId, statut)),
+
+      envoyerMessage: (id, texte) => agir(() => api.envoyerMessage(id, moiId, texte)),
+
+      marquerLu: (id) => {
+        const lead = index.leadDe(id)
+        if (!lead) return
+        const jusqua = dernierMouvement(lead)
+        if (donnees.lectures[id] === jusqua) return
+        // Marquage optimiste : la pastille disparait sans attendre le serveur.
+        setDonnees((d) => ({ ...d, lectures: { ...d.lectures, [id]: jusqua } }))
+        void api.marquerLu(id, moiId, jusqua).catch(() => undefined)
+      },
+
+      supprimerLead: (id) => agir(() => api.supprimerLead(id)),
+
+      // Sans objet en ligne : l'identite vient de la session authentifiee.
+      seConnecter: () => undefined,
+      creerMembre: () => undefined,
+      reinitialiser: () => undefined,
+
+      seDeconnecter: async () => {
+        await supabase!.auth.signOut()
+      },
+    }
+  }, [donnees, chargement, erreur, agir])
+
+  return <Ctx.Provider value={valeur}>{children}</Ctx.Provider>
+}
+
+/** Message lisible pour l'utilisateur a partir d'une erreur Supabase. */
+function messageErreur(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message)
+  return 'Une erreur est survenue.'
 }

@@ -6,11 +6,21 @@
  * cotes ». Tout ici sert a repondre a ca.
  */
 import { dernieresPeriodes, periodeDe, type Periode } from './dates'
-import { dernierMouvement, estClos, nonLus, STATUTS_ENTONNOIR, type Lead, type Sens, type Statut } from './types'
+import {
+  AUTRE,
+  dernierMouvement,
+  estClos,
+  nonLus,
+  STATUTS_ENTONNOIR,
+  type Lead,
+  type Organisation,
+  type Statut,
+} from './types'
 
-/** Bilan d'un sens de circulation. */
+/** Bilan des leads transmis par une maison donnee. */
 export interface Bilan {
-  sens: Sens
+  /** Maison qui a transmis ces leads. */
+  origine: Organisation
   total: number
   /** Transmis pendant le mois en cours. */
   ceMois: number
@@ -41,15 +51,15 @@ export function delaiPriseEnCharge(lead: Lead): number | null {
   return Math.max(0, Math.round((+new Date(priseEnCharge.date) - +new Date(lead.transmisLe)) / 86400000))
 }
 
-export function bilan(leads: Lead[], sens: Sens, maintenant: Date = new Date()): Bilan {
-  const lot = leads.filter((l) => l.sens === sens)
+export function bilan(leads: Lead[], origine: Organisation, maintenant: Date = new Date()): Bilan {
+  const lot = leads.filter((l) => l.origine === origine)
   const moisCourant = periodeDe(maintenant)
   const [moisPrecedent] = dernieresPeriodes(2, moisCourant)
   const convertis = lot.filter((l) => l.statut === 'converti').length
   const delais = lot.map(delaiPriseEnCharge).filter((d): d is number => d !== null)
 
   return {
-    sens,
+    origine,
     total: lot.length,
     ceMois: lot.filter((l) => periodeDe(l.transmisLe) === moisCourant).length,
     moisPrecedent: lot.filter((l) => periodeDe(l.transmisLe) === moisPrecedent).length,
@@ -62,19 +72,19 @@ export function bilan(leads: Lead[], sens: Sens, maintenant: Date = new Date()):
   }
 }
 
-/** Etat de la reciprocite entre les deux partenaires. */
+/** Etat de la reciprocite, vu depuis la maison `mienne`. */
 export interface Equilibre {
   envoyes: number
   recus: number
-  /** Positif quand Alyxa envoie plus qu'elle ne recoit. */
+  /** Positif quand `mienne` envoie plus qu'elle ne recoit. */
   ecart: number
-  /** Part des leads envoyes par Alyxa dans le total echange, entre 0 et 1. */
+  /** Part des leads envoyes par `mienne` dans le total echange, entre 0 et 1. */
   partEnvoyee: number
 }
 
-export function equilibre(leads: Lead[]): Equilibre {
-  const envoyes = leads.filter((l) => l.sens === 'envoye').length
-  const recus = leads.filter((l) => l.sens === 'recu').length
+export function equilibre(leads: Lead[], mienne: Organisation): Equilibre {
+  const envoyes = leads.filter((l) => l.origine === mienne).length
+  const recus = leads.filter((l) => l.origine === AUTRE[mienne]).length
   const total = envoyes + recus
   return {
     envoyes,
@@ -90,13 +100,18 @@ export interface LigneMois {
   recus: number
 }
 
-export function serieMensuelle(leads: Lead[], nbMois = 6, fin: Date = new Date()): LigneMois[] {
+export function serieMensuelle(
+  leads: Lead[],
+  mienne: Organisation,
+  nbMois = 6,
+  fin: Date = new Date(),
+): LigneMois[] {
   return dernieresPeriodes(nbMois, periodeDe(fin)).map((periode) => {
     const duMois = leads.filter((l) => periodeDe(l.transmisLe) === periode)
     return {
       periode,
-      envoyes: duMois.filter((l) => l.sens === 'envoye').length,
-      recus: duMois.filter((l) => l.sens === 'recu').length,
+      envoyes: duMois.filter((l) => l.origine === mienne).length,
+      recus: duMois.filter((l) => l.origine !== mienne).length,
     }
   })
 }

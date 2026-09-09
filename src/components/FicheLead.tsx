@@ -5,9 +5,11 @@ import { useStore } from '@/lib/store'
 import { formatDate } from '@/lib/dates'
 import { joursDepuis } from '@/lib/stats'
 import {
+  AUTRE,
+  destinataire,
   LIBELLE_ORGANISATION,
   LIBELLE_STATUT,
-  RESPONSABLE,
+  sensPour,
   STATUTS,
   type Evenement,
   type Statut,
@@ -15,7 +17,7 @@ import {
 
 /** Fiche complete d'un lead : ses informations, son parcours, sa discussion. */
 export default function FicheLead({ leadId, onFermer }: { leadId: string; onFermer: () => void }) {
-  const { leadDe, membreDe, regionDe, moi, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
+  const { leadDe, membreDe, regionDe, moi, maMaison, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
     useStore()
   const lead = leadDe(leadId)
   const [brouillon, setBrouillon] = useState('')
@@ -39,6 +41,9 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
 
   if (!lead) return null
 
+  const sens = sensPour(lead, maMaison)
+  const suivi = destinataire(lead)
+
   function envoyer() {
     if (!brouillon.trim()) return
     envoyerMessage(leadId, brouillon)
@@ -50,7 +55,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
       titre={
         <span className="flex flex-wrap items-center gap-2">
           {lead.structure}
-          <EtiquetteSens sens={lead.sens} complet />
+          <EtiquetteSens sens={sens} maison={maMaison} complet />
         </span>
       }
       sous={
@@ -58,7 +63,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
           Transmis par <strong className="font-semibold text-encre">{transmetteur?.nom ?? '—'}</strong>{' '}
           le {formatDate(lead.transmisLe)}
           {jours > 0 && <span className="text-encre-3"> · il y a {jours} jours</span>}
-          <span className="text-encre-3"> · suivi par {RESPONSABLE[lead.sens]}</span>
+          <span className="text-encre-3"> · suivi par {LIBELLE_ORGANISATION[suivi]}</span>
         </span>
       }
       onFermer={onFermer}
@@ -172,7 +177,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
                   }
                 }}
                 rows={1}
-                placeholder={`Écrire à ${lead.sens === 'recu' ? 'Septodont' : 'l’équipe Alyxa'}…`}
+                placeholder={`Écrire à l’équipe ${LIBELLE_ORGANISATION[AUTRE[maMaison]]}…`}
                 className="max-h-32 min-h-[40px] flex-1 resize-y rounded-lg border border-bord-fort bg-carte px-3 py-2.5 text-[13.5px] outline-none transition-colors focus:border-[var(--color-marque)] focus:ring-2 focus:ring-[var(--color-marque-clair)]"
               />
               <Bouton

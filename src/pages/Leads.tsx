@@ -18,10 +18,14 @@ import { useStore } from '@/lib/store'
 import { formatDate, ilYa } from '@/lib/dates'
 import { dateDuJour, telechargerCsv } from '@/lib/telecharger'
 import {
+  AUTRE,
   dernierMouvement,
-  LIBELLE_SENS,
+  deLaMaison,
+  libelleSens,
+  LIBELLE_ORGANISATION,
   LIBELLE_STATUT,
   nonLus,
+  sensPour,
   STATUTS,
   type Sens,
 } from '@/lib/types'
@@ -30,7 +34,7 @@ const TOUS = 'tous'
 type FiltreSens = Sens | typeof TOUS
 
 export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
-  const { leads, regions, membres, regionDe, membreDe, lectures, membreId } = useStore()
+  const { leads, regions, membres, regionDe, membreDe, lectures, membreId, maMaison } = useStore()
 
   const [sens, setSens] = useState<FiltreSens>(TOUS)
   const [recherche, setRecherche] = useState('')
@@ -42,7 +46,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase()
     return leads
-      .filter((l) => (sens === TOUS ? true : l.sens === sens))
+      .filter((l) => (sens === TOUS ? true : sensPour(l, maMaison) === sens))
       .filter((l) => (statut === TOUS ? true : l.statut === statut))
       .filter((l) => (region === TOUS ? true : l.regionId === region))
       .filter((l) => (transmetteur === TOUS ? true : l.transmisParId === transmetteur))
@@ -54,14 +58,14 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
           : true,
       )
       .sort((a, b) => +new Date(dernierMouvement(b)) - +new Date(dernierMouvement(a)))
-  }, [leads, sens, recherche, statut, region, transmetteur])
+  }, [leads, sens, recherche, statut, region, transmetteur, maMaison])
 
   const filtreActif = statut !== TOUS || region !== TOUS || transmetteur !== TOUS || recherche !== ''
 
   function exporter() {
     const entetes = ['Sens', 'Structure', 'Contact', 'Téléphone', 'Email', 'Ville', 'CP', 'Région', 'Motif', 'Transmis par', 'Transmis le', 'Statut', 'Dernier échange', 'Messages']
     const lignes = filtres.map((l) => [
-      LIBELLE_SENS[l.sens],
+      libelleSens(sensPour(l, maMaison), maMaison),
       l.structure,
       l.contact,
       l.telephone,
@@ -81,7 +85,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
 
   return (
     <>
-      <Entete titre="Leads" sous="Tout ce qui circule entre Alyxa et Septodont, dans les deux sens.">
+      <Entete titre="Leads" sous={`Tout ce qui circule entre ${LIBELLE_ORGANISATION[maMaison]} et ${LIBELLE_ORGANISATION[AUTRE[maMaison]]}, dans les deux sens.`}>
         <div className="flex flex-wrap gap-2">
           <Bouton onClick={exporter}>
             <Download size={15} /> Exporter
@@ -98,8 +102,16 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
           onChange={setSens}
           options={[
             { valeur: TOUS, libelle: 'Tous', compte: leads.length },
-            { valeur: 'recu', libelle: 'Reçus de Septodont', compte: leads.filter((l) => l.sens === 'recu').length },
-            { valeur: 'envoye', libelle: 'Envoyés à Septodont', compte: leads.filter((l) => l.sens === 'envoye').length },
+            {
+              valeur: 'recu',
+              libelle: `Reçus ${deLaMaison(AUTRE[maMaison])}`,
+              compte: leads.filter((l) => sensPour(l, maMaison) === 'recu').length,
+            },
+            {
+              valeur: 'envoye',
+              libelle: `Envoyés à ${LIBELLE_ORGANISATION[AUTRE[maMaison]]}`,
+              compte: leads.filter((l) => sensPour(l, maMaison) === 'envoye').length,
+            },
           ]}
         />
 
@@ -202,7 +214,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
                           </div>
                         </td>
                         <td className="px-3 py-3">
-                          <EtiquetteSens sens={l.sens} />
+                          <EtiquetteSens sens={sensPour(l, maMaison)} maison={maMaison} />
                         </td>
                         <td className="px-3 py-3 text-encre-2">{l.motif}</td>
                         <td className="px-3 py-3">

@@ -7,17 +7,31 @@ import { AXE, GRILLE, Infobulle, Legende, RAMPE_ENTRANT, RAMPE_SORTANT, SERIES }
 import { bilan, entonnoir, equilibre, joursDepuis, leadsDormants, leadsNonLus, repartir, serieMensuelle, type Bilan } from '@/lib/stats'
 import { formatDate, libellePeriode } from '@/lib/dates'
 import { useStore } from '@/lib/store'
-import { dernierMouvement, LIBELLE_SENS, LIBELLE_STATUT, RESPONSABLE } from '@/lib/types'
+import {
+  AUTRE,
+  deLaMaison,
+  dernierMouvement,
+  destinataire,
+  libelleSens,
+  LIBELLE_ORGANISATION,
+  LIBELLE_STATUT,
+  sensPour,
+  type Lead,
+  type Organisation,
+  type Sens,
+} from '@/lib/types'
 
 const pourcent = (n: number, d = 0) => `${(n * 100).toLocaleString('fr-FR', { maximumFractionDigits: d })} %`
 
 export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
-  const { leads, lectures, membreId, membreDe, regionDe } = useStore()
+  const { leads, lectures, membreId, membreDe, regionDe, maMaison } = useStore()
+  const autre = AUTRE[maMaison]
 
-  const eq = useMemo(() => equilibre(leads), [leads])
-  const recus = useMemo(() => bilan(leads, 'recu'), [leads])
-  const envoyes = useMemo(() => bilan(leads, 'envoye'), [leads])
-  const serie = useMemo(() => serieMensuelle(leads), [leads])
+  const eq = useMemo(() => equilibre(leads, maMaison), [leads, maMaison])
+  // « Envoyés » = ce que ma maison transmet ; « reçus » = ce que l'autre transmet.
+  const envoyes = useMemo(() => bilan(leads, maMaison), [leads, maMaison])
+  const recus = useMemo(() => bilan(leads, autre), [leads, autre])
+  const serie = useMemo(() => serieMensuelle(leads, maMaison), [leads, maMaison])
   const dormants = useMemo(() => leadsDormants(leads), [leads])
   const nonLus = useMemo(() => leadsNonLus(leads, lectures, membreId), [leads, lectures, membreId])
   const motifs = useMemo(() => repartir(leads, (l) => l.motif).slice(0, 8), [leads])
@@ -26,7 +40,7 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
     <>
       <Entete
         titre="Tableau de bord"
-        sous="L’état de l’échange avec Septodont : ce qui circule dans chaque sens, et ce que ça donne."
+        sous={`L’état de l’échange avec ${LIBELLE_ORGANISATION[autre]} : ce qui circule dans chaque sens, et ce que ça donne.`}
       />
 
       <div className="space-y-6 px-6 py-6 lg:px-8">
@@ -79,16 +93,16 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
               />
             </div>
             <div className="mt-2 flex justify-between text-[11.5px] text-encre-3">
-              <span>{pourcent(eq.partEnvoyee)} envoyés par Alyxa</span>
-              <span>{pourcent(1 - eq.partEnvoyee)} reçus de Septodont</span>
+              <span>{pourcent(eq.partEnvoyee)} envoyés par {LIBELLE_ORGANISATION[maMaison]}</span>
+              <span>{pourcent(1 - eq.partEnvoyee)} reçus {deLaMaison(autre)}</span>
             </div>
           </div>
         </Carte>
 
         {/* Le miroir : le meme bilan des deux cotes, cote a cote. */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ColonneBilan bilan={envoyes} leads={leads} />
-          <ColonneBilan bilan={recus} leads={leads} />
+          <ColonneBilan bilan={envoyes} leads={leads} sens="envoye" maison={maMaison} />
+          <ColonneBilan bilan={recus} leads={leads} sens="recu" maison={maMaison} />
         </div>
 
         <Carte
@@ -97,8 +111,8 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
           action={
             <Legende
               items={[
-                { libelle: 'Envoyés à Septodont', couleur: SERIES.sortant },
-                { libelle: 'Reçus de Septodont', couleur: SERIES.entrant },
+                { libelle: `Envoyés à ${LIBELLE_ORGANISATION[autre]}`, couleur: SERIES.sortant },
+                { libelle: `Reçus ${deLaMaison(autre)}`, couleur: SERIES.entrant },
               ]}
             />
           }
@@ -191,10 +205,10 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px] font-medium">{l.structure}</span>
                       <span className="block text-[12px] text-encre-3">
-                        {l.ville} · {regionDe(l.regionId)} · chez {RESPONSABLE[l.sens]}
+                        {l.ville} · {regionDe(l.regionId)} · chez {LIBELLE_ORGANISATION[destinataire(l)]}
                       </span>
                     </span>
-                    <EtiquetteSens sens={l.sens} />
+                    <EtiquetteSens sens={sensPour(l, maMaison)} maison={maMaison} />
                     <EtiquetteStatut statut={l.statut} />
                     <span className="tabulaire w-20 text-right text-[12.5px] text-encre-2">
                       {joursDepuis(dernierMouvement(l))} j
@@ -243,9 +257,22 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
 }
 
 /** Bilan d'un sens : le meme bloc a gauche et a droite, pour comparer d'un regard. */
-function ColonneBilan({ bilan: b, leads }: { bilan: Bilan; leads: import('@/lib/types').Lead[] }) {
-  const sortant = b.sens === 'envoye'
-  const etapes = useMemo(() => entonnoir(leads.filter((l) => l.sens === b.sens)), [leads, b.sens])
+function ColonneBilan({
+  bilan: b,
+  leads,
+  sens,
+  maison,
+}: {
+  bilan: Bilan
+  leads: Lead[]
+  sens: Sens
+  maison: Organisation
+}) {
+  const sortant = sens === 'envoye'
+  const etapes = useMemo(
+    () => entonnoir(leads.filter((l) => l.origine === b.origine)),
+    [leads, b.origine],
+  )
   const rampe = sortant ? RAMPE_SORTANT : RAMPE_ENTRANT
   const accent = sortant ? 'var(--color-sortant)' : 'var(--color-entrant)'
   const evolution = b.ceMois - b.moisPrecedent
@@ -256,10 +283,10 @@ function ColonneBilan({ bilan: b, leads }: { bilan: Bilan; leads: import('@/lib/
         <div>
           <h2 className="flex items-center gap-2 text-[15px] font-semibold">
             {sortant ? <ArrowUpRight size={17} style={{ color: accent }} /> : <ArrowDownLeft size={17} style={{ color: accent }} />}
-            {LIBELLE_SENS[b.sens]}
+            {libelleSens(sens, maison)}
           </h2>
           <p className="mt-0.5 text-[13px] text-encre-2">
-            Suivi par {RESPONSABLE[b.sens]}
+            Suivi par {LIBELLE_ORGANISATION[sortant ? AUTRE[maison] : maison]}
           </p>
         </div>
         <div className="text-right">

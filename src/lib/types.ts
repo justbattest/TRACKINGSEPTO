@@ -1,32 +1,29 @@
 /**
  * Modele de l'echange de leads Alyxa <-> Septodont.
  *
- * Un seul objet : le lead. Il porte un sens (qui l'envoie a qui) et suit le
- * meme parcours des deux cotes. Pas de contrat, pas de commission : c'est un
+ * Un seul objet : le lead. Il porte l'organisation qui l'a transmis et suit le
+ * meme parcours des deux cotes. Le sens — envoye ou recu — n'est jamais stocke :
+ * il se deduit de qui regarde, pour que les deux equipes voient la meme base
+ * depuis leur propre point de vue. Pas de contrat, pas de commission : c'est un
  * echange, on compte ce qui circule et ce que ca donne.
  */
 
-/** Sens de circulation, vu depuis Alyxa. */
-export type Sens = 'recu' | 'envoye'
+/** Les deux maisons qui echangent des leads. */
+export type Organisation = 'alyxa' | 'septodont'
 
-export const SENS: Sens[] = ['recu', 'envoye']
-
-export const LIBELLE_SENS: Record<Sens, string> = {
-  recu: 'Reçu de Septodont',
-  envoye: 'Envoyé à Septodont',
+export const LIBELLE_ORGANISATION: Record<Organisation, string> = {
+  alyxa: 'Alyxa',
+  septodont: 'Septodont',
 }
 
-/** Formulation courte pour les tableaux et les filtres. */
-export const LIBELLE_SENS_COURT: Record<Sens, string> = {
-  recu: 'Reçu',
-  envoye: 'Envoyé',
-}
+/**
+ * Sens de circulation, TOUJOURS relatif a celui qui regarde. Un lead qu'Alyxa
+ * envoie est, pour Septodont, un lead recu : c'est le meme lead, lu des deux
+ * bouts. On ne stocke donc jamais le sens, seulement son origine.
+ */
+export type Sens = 'envoye' | 'recu'
 
-/** Qui prend le lead en charge une fois transmis. */
-export const RESPONSABLE: Record<Sens, string> = {
-  recu: 'Alyxa',
-  envoye: 'Septodont',
-}
+export const SENS: Sens[] = ['envoye', 'recu']
 
 /** Parcours commun aux deux sens, dans l'ordre. */
 export const STATUTS = ['transmis', 'contacte', 'rdv', 'converti', 'sans_suite'] as const
@@ -47,11 +44,12 @@ export const STATUTS_ENTONNOIR: Statut[] = ['transmis', 'contacte', 'rdv', 'conv
 export const estClos = (statut: Statut): boolean => statut === 'converti' || statut === 'sans_suite'
 
 /**
- * Motifs proposes selon le sens. Liste courte et fermee : c'est ce qui rend
- * les statistiques exploitables. « Autre » laisse la porte ouverte.
+ * Motifs proposes, ranges par maison DESTINATAIRE : un lead qui part chez
+ * Septodont porte un motif Septodont. Liste courte et fermee, c'est ce qui rend
+ * les statistiques exploitables ; « Autre » laisse la porte ouverte.
  */
-export const MOTIFS: Record<Sens, string[]> = {
-  envoye: [
+export const MOTIFS: Record<Organisation, string[]> = {
+  septodont: [
     'Division chirurgie',
     'Implantologie',
     'Anesthésie',
@@ -59,7 +57,7 @@ export const MOTIFS: Record<Sens, string[]> = {
     'Équipement',
     'Autre',
   ],
-  recu: [
+  alyxa: [
     'Intéressé par Alyxa',
     'Démo demandée',
     'Recommandation praticien',
@@ -68,17 +66,42 @@ export const MOTIFS: Record<Sens, string[]> = {
   ],
 }
 
+/** L'autre maison du partenariat. */
+export const AUTRE: Record<Organisation, Organisation> = {
+  alyxa: 'septodont',
+  septodont: 'alyxa',
+}
+
+/** Le sens d'un lead, tel que le voit la maison `mienne`. */
+export const sensPour = (lead: { origine: Organisation }, mienne: Organisation): Sens =>
+  lead.origine === mienne ? 'envoye' : 'recu'
+
+/** La maison qui recoit le lead, et donc qui le prend en charge. */
+export const destinataire = (lead: { origine: Organisation }): Organisation => AUTRE[lead.origine]
+
+/** « de Septodont », « d'Alyxa » : elision devant une voyelle. */
+export const deLaMaison = (organisation: Organisation): string => {
+  const nom = LIBELLE_ORGANISATION[organisation]
+  return /^[aeiouyàâéèêîôû]/i.test(nom) ? `d’${nom}` : `de ${nom}`
+}
+
+/** Libelle complet du sens, du point de vue de la maison `mienne`. */
+export function libelleSens(sens: Sens, mienne: Organisation): string {
+  const autre = AUTRE[mienne]
+  return sens === 'envoye'
+    ? `Envoyé à ${LIBELLE_ORGANISATION[autre]}`
+    : `Reçu ${deLaMaison(autre)}`
+}
+
+/** Formulation courte pour les tableaux et les filtres. */
+export const LIBELLE_SENS_COURT: Record<Sens, string> = {
+  envoye: 'Envoyé',
+  recu: 'Reçu',
+}
+
 export interface Region {
   id: string
   nom: string
-}
-
-/** Les deux maisons qui echangent des leads. */
-export type Organisation = 'alyxa' | 'septodont'
-
-export const LIBELLE_ORGANISATION: Record<Organisation, string> = {
-  alyxa: 'Alyxa',
-  septodont: 'Septodont',
 }
 
 /**
@@ -135,7 +158,8 @@ export interface Evenement {
 
 export interface Lead {
   id: string
-  sens: Sens
+  /** Maison qui a transmis le lead. Absolu : le sens s'en deduit par lecteur. */
+  origine: Organisation
   /** Cabinet, clinique ou structure concernee. */
   structure: string
   /** Praticien ou interlocuteur principal. */

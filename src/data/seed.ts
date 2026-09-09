@@ -4,13 +4,14 @@
  * donnees des que la base est branchee.
  */
 import {
+  AUTRE,
   COULEURS_MEMBRE,
   MOTIFS,
   type Evenement,
   type Lead,
   type Membre,
+  type Organisation,
   type Region,
-  type Sens,
   type Statut,
 } from '@/lib/types'
 
@@ -41,16 +42,10 @@ export const MEMBRES: Membre[] = [
   { id: 's4', nom: 'Camille Duval', organisation: 'septodont', couleur: COULEURS_MEMBRE[6] },
 ]
 
-/** Qui transmet dans quel sens : Alyxa envoie, Septodont fait remonter. */
-const AUTEURS: Record<Sens, string[]> = {
-  envoye: ['a1', 'a2', 'a3'],
-  recu: ['s1', 's2', 's3', 's4'],
-}
-
-/** Qui prend le lead en charge une fois transmis. */
-const RECEVEURS: Record<Sens, string[]> = {
-  recu: ['a1', 'a2', 'a3'],
-  envoye: ['s1', 's2', 's3', 's4'],
+/** Les membres de chaque maison. */
+const GENS: Record<Organisation, string[]> = {
+  alyxa: ['a1', 'a2', 'a3'],
+  septodont: ['s1', 's2', 's3', 's4'],
 }
 
 const VILLES: Record<string, [string, string][]> = {
@@ -73,8 +68,8 @@ const NOMS = ['Lambert', 'Moreau', 'Simon', 'Michel', 'Garcia', 'Robin', 'Blanc'
  * Echanges types entre les deux equipes. Premier message = celui qui transmet,
  * second = celui qui recoit : c'est le rythme reel d'une discussion sur un lead.
  */
-const CONVERSATIONS: Record<Sens, [string, string][]> = {
-  envoye: [
+const CONVERSATIONS: Record<Organisation, [string, string][]> = {
+  alyxa: [
     [
       'Le praticien pose beaucoup d’implants, il est ouvert à être recontacté par votre division chirurgie.',
       'Parfait, je le prends. Je l’appelle en début de semaine prochaine.',
@@ -92,7 +87,7 @@ const CONVERSATIONS: Record<Sens, [string, string][]> = {
       'Très bien, je le mets en priorité. Je vous dis ce que ça donne.',
     ],
   ],
-  recu: [
+  septodont: [
     [
       'Cabinet rencontré ce matin, très intéressé par le suivi post-consultation. Il attend une démo.',
       'Super, je le contacte aujourd’hui pour caler un créneau.',
@@ -133,9 +128,9 @@ function alea(graine: number) {
 }
 
 /** Repartition des issues, un peu meilleure sur les leads qu'on recoit. */
-const ISSUES: Record<Sens, [Statut, number][]> = {
-  recu: [['transmis', 0.16], ['contacte', 0.2], ['rdv', 0.16], ['converti', 0.26], ['sans_suite', 0.22]],
-  envoye: [['transmis', 0.2], ['contacte', 0.22], ['rdv', 0.15], ['converti', 0.2], ['sans_suite', 0.23]],
+const ISSUES: Record<Organisation, [Statut, number][]> = {
+  septodont: [['transmis', 0.16], ['contacte', 0.2], ['rdv', 0.16], ['converti', 0.26], ['sans_suite', 0.22]],
+  alyxa: [['transmis', 0.2], ['contacte', 0.22], ['rdv', 0.15], ['converti', 0.2], ['sans_suite', 0.23]],
 }
 
 export interface JeuDeDonnees {
@@ -151,9 +146,9 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
 
   // 6 mois d'historique, avec un volume qui monte doucement.
   for (let recul = 5; recul >= 0; recul--) {
-    for (const sens of ['recu', 'envoye'] as Sens[]) {
-      // Septodont envoie un peu plus que nous : l'echange n'est pas parfait.
-      const base = sens === 'recu' ? 5 : 4
+    for (const origine of ['septodont', 'alyxa'] as Organisation[]) {
+      // Septodont transmet un peu plus que nous : l'echange n'est pas parfait.
+      const base = origine === 'septodont' ? 5 : 4
       const volume = base + Math.round((5 - recul) * 0.9) + (rnd() > 0.6 ? 1 : 0)
 
       for (let i = 0; i < volume; i++) {
@@ -168,7 +163,7 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
         let cumul = 0
         const tirage = rnd()
         let statut: Statut = 'transmis'
-        for (const [s, part] of ISSUES[sens]) {
+        for (const [s, part] of ISSUES[origine]) {
           cumul += part
           if (tirage <= cumul) {
             statut = s
@@ -183,14 +178,18 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
           statut = rnd() > 0.45 ? 'converti' : rnd() > 0.4 ? 'sans_suite' : 'contacte'
         }
 
-        const motifs = MOTIFS[sens]
-        const auteurId = AUTEURS[sens][Math.floor(rnd() * AUTEURS[sens].length)]
-        const receveurId = RECEVEURS[sens][Math.floor(rnd() * RECEVEURS[sens].length)]
-        const fil = construireFil(sens, statut, transmisLe, auteurId, receveurId, leads.length, rnd, reference)
+        // Le motif est celui de la maison qui recoit le lead.
+        const cible = AUTRE[origine]
+        const motifs = MOTIFS[cible]
+        const auteurs = GENS[origine]
+        const receveurs = GENS[cible]
+        const auteurId = auteurs[Math.floor(rnd() * auteurs.length)]
+        const receveurId = receveurs[Math.floor(rnd() * receveurs.length)]
+        const fil = construireFil(origine, statut, transmisLe, auteurId, receveurId, leads.length, rnd, reference)
 
         leads.push({
           id: `l${leads.length + 1}`,
-          sens,
+          origine,
           structure: `Cabinet dentaire ${ville}${rnd() > 0.65 ? ' Centre' : ''}`,
           contact: `Dr ${PRENOMS[Math.floor(rnd() * PRENOMS.length)]} ${NOMS[Math.floor(rnd() * NOMS.length)]}`,
           telephone: `0${1 + Math.floor(rnd() * 5)} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))}`,
@@ -220,7 +219,7 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
  * porte de date future.
  */
 function construireFil(
-  sens: Sens,
+  origine: Organisation,
   statut: Statut,
   transmisLe: Date,
   auteurId: string,
@@ -236,7 +235,8 @@ function construireFil(
   let decalage = 0
 
   // Le message d'accompagnement de celui qui transmet.
-  const [presentation, reponse] = CONVERSATIONS[sens][Math.floor(rnd() * CONVERSATIONS[sens].length)]
+  const echanges = CONVERSATIONS[origine]
+  const [presentation, reponse] = echanges[Math.floor(rnd() * echanges.length)]
   decalage += 60000
   etapes.push({ decalage, type: 'message', texte: presentation, auteurId })
 

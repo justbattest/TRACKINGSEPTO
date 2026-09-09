@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { BarChart3, BookOpen, Repeat2, Users } from 'lucide-react'
+import { AlertCircle, BarChart3, BookOpen, Loader2, LogOut, Repeat2, Users } from 'lucide-react'
 import Tableau from '@/pages/Tableau'
 import Leads from '@/pages/Leads'
 import Guide from '@/pages/Guide'
 import FicheLead from '@/components/FicheLead'
 import Identite from '@/components/Identite'
+import Connexion from '@/components/Connexion'
 import { Avatar, Pastille } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import { leadsNonLus } from '@/lib/stats'
@@ -18,12 +19,20 @@ const MENU = [
 ]
 
 export default function App() {
-  const { moi, leads, lectures, membreId } = useStore()
+  const { moi, leads, lectures, membreId, enLigne, chargement, erreur, seDeconnecter } = useStore()
   const [leadOuvert, setLeadOuvert] = useState<string | null>(null)
   const [changerCompte, setChangerCompte] = useState(false)
 
-  // Personne ne peut discuter sans nom : on demande l'identite avant tout.
-  if (!moi) return <Identite obligatoire />
+  if (chargement) {
+    return (
+      <div className="flex min-h-screen items-center justify-center gap-2 bg-fond text-[13.5px] text-encre-2">
+        <Loader2 size={17} className="animate-spin" /> Chargement de l’échange…
+      </div>
+    )
+  }
+
+  // Personne ne peut discuter sans nom : on s'identifie avant tout.
+  if (!moi) return enLigne ? <Connexion /> : <Identite obligatoire />
 
   const messagesEnAttente = leadsNonLus(leads, lectures, membreId).reduce((t, n) => t + n.nonLus, 0)
 
@@ -74,7 +83,8 @@ export default function App() {
 
         {/* Le compte courant : on voit tout de suite sous quelle identite on écrit. */}
         <button
-          onClick={() => setChangerCompte(true)}
+          onClick={() => (enLigne ? void seDeconnecter() : setChangerCompte(true))}
+          title={enLigne ? 'Se déconnecter' : 'Changer de compte'}
           className="flex items-center gap-2.5 border-t border-bord px-4 py-3.5 text-left transition-colors hover:bg-fond"
         >
           <Avatar membre={moi} taille={32} />
@@ -82,7 +92,11 @@ export default function App() {
             <span className="block truncate text-[13px] font-medium">{moi.nom}</span>
             <span className="block text-[11.5px] text-encre-3">{LIBELLE_ORGANISATION[moi.organisation]}</span>
           </span>
-          <Users size={15} className="shrink-0 text-encre-3" />
+          {enLigne ? (
+            <LogOut size={15} className="shrink-0 text-encre-3" />
+          ) : (
+            <Users size={15} className="shrink-0 text-encre-3" />
+          )}
         </button>
       </nav>
 
@@ -109,7 +123,7 @@ export default function App() {
           </NavLink>
         ))}
         <button
-          onClick={() => setChangerCompte(true)}
+          onClick={() => (enLigne ? void seDeconnecter() : setChangerCompte(true))}
           className="flex flex-col items-center gap-0.5 px-3 py-1.5 text-[10.5px] text-encre-3"
         >
           <Avatar membre={moi} taille={18} />
@@ -118,6 +132,12 @@ export default function App() {
       </nav>
 
       <main className="min-w-0 flex-1 pb-20 lg:pb-0">
+        {erreur && (
+          <div className="flex items-start gap-2 border-b border-[var(--color-critique)] bg-[var(--color-critique-fond)] px-6 py-3 text-[13px] text-[#b02a2a] lg:px-8">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <span>{erreur}</span>
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<Tableau onOuvrirLead={setLeadOuvert} />} />
           <Route path="/leads" element={<Leads onOuvrirLead={setLeadOuvert} />} />
@@ -127,7 +147,7 @@ export default function App() {
       </main>
 
       {leadOuvert && <FicheLead leadId={leadOuvert} onFermer={() => setLeadOuvert(null)} />}
-      {changerCompte && <Identite onFermer={() => setChangerCompte(false)} />}
+      {changerCompte && !enLigne && <Identite onFermer={() => setChangerCompte(false)} />}
     </div>
   )
 }

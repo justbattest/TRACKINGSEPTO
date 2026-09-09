@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { bilan, delaiPriseEnCharge, entonnoir, equilibre, leadsDormants, leadsNonLus, repartir, serieMensuelle } from './stats'
-import type { Lead, Sens, Statut } from './types'
+import type { Lead, Organisation, Statut } from './types'
 
 const MAINTENANT = new Date('2026-09-09T12:00:00.000Z')
 const jours = (n: number) => new Date(+MAINTENANT - n * 86400000).toISOString()
@@ -8,7 +8,7 @@ const jours = (n: number) => new Date(+MAINTENANT - n * 86400000).toISOString()
 /** Construit un lead dont le journal reflete le parcours jusqu'au statut vise. */
 function lead(
   id: string,
-  sens: Sens,
+  origine: Organisation,
   statut: Statut,
   transmisIlYa: number,
   options: { contacteApres?: number; motif?: string; region?: string } = {},
@@ -38,7 +38,7 @@ function lead(
   }
   return {
     id,
-    sens,
+    origine,
     structure: `Cabinet ${id}`,
     contact: 'Dr Test',
     telephone: '',
@@ -55,45 +55,58 @@ function lead(
 }
 
 describe('equilibre de l echange', () => {
-  it('compte les deux sens et mesure l ecart', () => {
+  it('compte les deux origines et mesure l ecart, depuis un point de vue', () => {
     const e = equilibre([
-      lead('a', 'envoye', 'transmis', 10),
-      lead('b', 'envoye', 'transmis', 9),
-      lead('c', 'recu', 'transmis', 8),
-    ])
+      lead('a', 'alyxa', 'transmis', 10),
+      lead('b', 'alyxa', 'transmis', 9),
+      lead('c', 'septodont', 'transmis', 8),
+    ], 'alyxa')
     expect(e.envoyes).toBe(2)
     expect(e.recus).toBe(1)
     expect(e.ecart).toBe(1)
     expect(e.partEnvoyee).toBeCloseTo(2 / 3)
   })
 
+  it('s inverse selon la maison qui regarde', () => {
+    const base = [
+      lead('a', 'alyxa', 'transmis', 10),
+      lead('b', 'alyxa', 'transmis', 9),
+      lead('c', 'septodont', 'transmis', 8),
+    ]
+    const vuAlyxa = equilibre(base, 'alyxa')
+    const vuSeptodont = equilibre(base, 'septodont')
+    expect(vuAlyxa.envoyes).toBe(vuSeptodont.recus)
+    expect(vuAlyxa.recus).toBe(vuSeptodont.envoyes)
+    expect(vuAlyxa.ecart).toBe(-vuSeptodont.ecart)
+  })
+
   it('reste neutre quand aucun lead n a circule', () => {
-    expect(equilibre([]).partEnvoyee).toBe(0.5)
-    expect(equilibre([]).ecart).toBe(0)
+    expect(equilibre([], 'alyxa').partEnvoyee).toBe(0.5)
+    expect(equilibre([], 'alyxa').ecart).toBe(0)
   })
 })
 
-describe('bilan par sens', () => {
+describe('bilan par origine', () => {
   const leads = [
-    lead('a', 'recu', 'converti', 40),
-    lead('b', 'recu', 'contacte', 20),
-    lead('c', 'recu', 'transmis', 3),
-    lead('d', 'recu', 'sans_suite', 60),
-    lead('e', 'envoye', 'converti', 30),
+    lead('a', 'septodont', 'converti', 40),
+    lead('b', 'septodont', 'contacte', 20),
+    lead('c', 'septodont', 'transmis', 3),
+    lead('d', 'septodont', 'sans_suite', 60),
+    lead('e', 'alyxa', 'converti', 30),
   ]
 
-  it('ne compte que le sens demande', () => {
-    expect(bilan(leads, 'recu', MAINTENANT).total).toBe(4)
-    expect(bilan(leads, 'envoye', MAINTENANT).total).toBe(1)
+  it('ne compte que l origine demandee', () => {
+    expect(bilan(leads, 'septodont', MAINTENANT).total).toBe(4)
+    expect(bilan(leads, 'alyxa', MAINTENANT).total).toBe(1)
   })
 
-  it('calcule le taux de conversion sur le sens', () => {
-    expect(bilan(leads, 'recu', MAINTENANT).convertis).toBe(1)
-    expect(bilan(leads, 'recu', MAINTENANT).tauxConversion).toBeCloseTo(0.25)
+  it('calcule le taux de conversion sur l origine', () => {
+    expect(bilan(leads, 'septodont', MAINTENANT).convertis).toBe(1)
+    expect(bilan(leads, 'septodont', MAINTENANT).tauxConversion).toBeCloseTo(0.25)
   })
 
   it('distingue en attente, en cours et sans suite', () => {
-    const b = bilan(leads, 'recu', MAINTENANT)
+    const b = bilan(leads, 'septodont', MAINTENANT)
     expect(b.enAttente).toBe(1) // seul le lead encore au statut « transmis »
     expect(b.enCours).toBe(2) // transmis + contacte
     expect(b.sansSuite).toBe(1)
@@ -102,24 +115,24 @@ describe('bilan par sens', () => {
   it('mesure le delai median de prise en charge', () => {
     const b = bilan(
       [
-        lead('a', 'recu', 'contacte', 30, { contacteApres: 1 }),
-        lead('b', 'recu', 'contacte', 30, { contacteApres: 5 }),
-        lead('c', 'recu', 'contacte', 30, { contacteApres: 9 }),
+        lead('a', 'septodont', 'contacte', 30, { contacteApres: 1 }),
+        lead('b', 'septodont', 'contacte', 30, { contacteApres: 5 }),
+        lead('c', 'septodont', 'contacte', 30, { contacteApres: 9 }),
       ],
-      'recu',
+      'septodont',
       MAINTENANT,
     )
     expect(b.delaiMedianContact).toBe(5)
   })
 
   it('ne renvoie pas de delai quand rien n a ete pris en charge', () => {
-    expect(bilan([lead('a', 'recu', 'transmis', 3)], 'recu', MAINTENANT).delaiMedianContact).toBeNull()
-    expect(delaiPriseEnCharge(lead('a', 'recu', 'transmis', 3))).toBeNull()
+    expect(bilan([lead('a', 'septodont', 'transmis', 3)], 'septodont', MAINTENANT).delaiMedianContact).toBeNull()
+    expect(delaiPriseEnCharge(lead('a', 'septodont', 'transmis', 3))).toBeNull()
   })
 
   it('separe le mois en cours du mois precedent', () => {
     // 2 jours avant le 9 septembre => septembre ; 35 jours avant => 5 août.
-    const b = bilan([lead('a', 'recu', 'transmis', 2), lead('b', 'recu', 'transmis', 35)], 'recu', MAINTENANT)
+    const b = bilan([lead('a', 'septodont', 'transmis', 2), lead('b', 'septodont', 'transmis', 35)], 'septodont', MAINTENANT)
     expect(b.ceMois).toBe(1)
     expect(b.moisPrecedent).toBe(1)
   })
@@ -127,7 +140,7 @@ describe('bilan par sens', () => {
 
 describe('entonnoir', () => {
   it('est cumulatif : un converti compte a chaque etape franchie', () => {
-    const e = entonnoir([lead('a', 'recu', 'converti', 20), lead('b', 'recu', 'transmis', 5)])
+    const e = entonnoir([lead('a', 'septodont', 'converti', 20), lead('b', 'septodont', 'transmis', 5)])
     expect(e.find((x) => x.statut === 'transmis')?.atteint).toBe(2)
     expect(e.find((x) => x.statut === 'contacte')?.atteint).toBe(1)
     expect(e.find((x) => x.statut === 'converti')?.atteint).toBe(1)
@@ -139,9 +152,9 @@ describe('leads dormants', () => {
   it('ne retient que les leads ouverts et immobiles', () => {
     const dormants = leadsDormants(
       [
-        lead('vieux', 'recu', 'transmis', 30),
-        lead('recent', 'recu', 'transmis', 2),
-        lead('clos', 'recu', 'converti', 40),
+        lead('vieux', 'septodont', 'transmis', 30),
+        lead('recent', 'septodont', 'transmis', 2),
+        lead('clos', 'septodont', 'converti', 40),
       ],
       7,
       MAINTENANT,
@@ -151,7 +164,7 @@ describe('leads dormants', () => {
 
   it('remonte les plus anciens en premier', () => {
     const dormants = leadsDormants(
-      [lead('a', 'recu', 'transmis', 10), lead('b', 'recu', 'transmis', 40)],
+      [lead('a', 'septodont', 'transmis', 10), lead('b', 'septodont', 'transmis', 40)],
       7,
       MAINTENANT,
     )
@@ -161,7 +174,7 @@ describe('leads dormants', () => {
 
 describe('messages non lus', () => {
   const avecMessage = (id: string, auteurId: string, ilYa: number): Lead => {
-    const base = lead(id, 'recu', 'contacte', ilYa)
+    const base = lead(id, 'septodont', 'contacte', ilYa)
     return {
       ...base,
       fil: [...base.fil, { id: `${id}-msg`, date: jours(ilYa - 1), type: 'message', texte: 'Coucou', auteurId }],
@@ -188,9 +201,9 @@ describe('repartition et serie mensuelle', () => {
   it('regroupe par motif et compte les convertis', () => {
     const r = repartir(
       [
-        lead('a', 'envoye', 'converti', 10, { motif: 'Implantologie' }),
-        lead('b', 'envoye', 'transmis', 10, { motif: 'Implantologie' }),
-        lead('c', 'envoye', 'transmis', 10, { motif: 'Anesthésie' }),
+        lead('a', 'alyxa', 'converti', 10, { motif: 'Implantologie' }),
+        lead('b', 'alyxa', 'transmis', 10, { motif: 'Implantologie' }),
+        lead('c', 'alyxa', 'transmis', 10, { motif: 'Anesthésie' }),
       ],
       (l) => l.motif,
     )
@@ -198,7 +211,7 @@ describe('repartition et serie mensuelle', () => {
   })
 
   it('couvre les derniers mois, du plus ancien au plus recent', () => {
-    const serie = serieMensuelle([lead('a', 'envoye', 'transmis', 1)], 6, MAINTENANT)
+    const serie = serieMensuelle([lead('a', 'alyxa', 'transmis', 1)], 'alyxa', 6, MAINTENANT)
     expect(serie).toHaveLength(6)
     expect(serie[5].periode).toBe('2026-09')
     expect(serie[5].envoyes).toBe(1)

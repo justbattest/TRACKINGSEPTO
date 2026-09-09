@@ -91,30 +91,83 @@ chiffres en main, combien de temps met chaque camp à prendre un lead en charge.
 fonctions pures couvertes par des tests. Les pages affichent, elles ne calculent
 pas.
 
-## Persistance
+## Les deux modes
 
-L'application tourne en **mode démonstration** : les données vivent dans le
-navigateur (`localStorage`). C'est suffisant pour valider l'outil, pas pour
-travailler à plusieurs.
+L'application tourne dans l'un ou l'autre, selon la présence des variables
+d'environnement. Le code des pages est identique dans les deux cas.
 
-Pour passer en base réelle :
+| | Démonstration | Partagé |
+|---|---|---|
+| Déclenché par | aucune variable d'environnement | `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` |
+| Données | jeu d'exemple, dans le navigateur | base Supabase commune |
+| Identité | on choisit un personnage | compte email + mot de passe |
+| Temps réel | non | oui, les messages arrivent seuls |
 
-1. Créer un projet Supabase.
-2. Exécuter `supabase/schema.sql` dans son éditeur SQL.
-3. Renseigner `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY` (voir
-   `.env.example`).
-4. Brancher les fonctions de `src/lib/store.tsx` sur le client Supabase — les
-   pages et les statistiques restent inchangées.
+## Mise en service
 
-Le schéma pose la sécurité au niveau des lignes : tout membre authentifié voit
-tous les leads et toutes les discussions — c'est le principe même du partenariat
-— mais on n'écrit qu'en son propre nom, et les états de lecture restent privés.
+### 1. Créer le projet Supabase
 
-## Déploiement
+Sur [supabase.com](https://supabase.com), créer un projet en région **Europe
+(Paris ou Francfort)** — les leads sont des données professionnelles de
+praticiens français.
 
-`npm run build` produit un site statique dans `dist/`, à publier tel quel sur
-Netlify ou Vercel. Le routage passe par le fragment d'URL, donc aucune règle de
-réécriture n'est nécessaire côté serveur.
+### 2. Poser le schéma
+
+Coller `supabase/schema.sql` dans l'éditeur SQL du projet et exécuter. Il crée
+les tables, les règles d'accès, la fonction de création de compte et le temps
+réel. Il est réexécutable sans risque.
+
+### 3. Ouvrir les bons domaines
+
+Le schéma amorce `alyxa.fr`, `septodont.com` et `septodont.fr`. Pour en ajouter
+un :
+
+```sql
+insert into domaines_autorises (domaine, organisation)
+values ('mondomaine.fr', 'septodont');
+```
+
+**C'est le seul contrôle d'accès.** Une adresse hors de cette liste peut créer
+un compte, mais ne peut pas créer de profil : elle ne voit rien.
+
+### 4. Déployer sur Netlify
+
+Connecter le dépôt GitHub à Netlify. `netlify.toml` fournit déjà la commande de
+build et le dossier de publication. Il reste à renseigner, dans
+**Site settings > Environment variables** :
+
+| Variable | Où la trouver |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase > Settings > API > Project URL |
+| `VITE_SUPABASE_ANON_KEY` | Supabase > Settings > API > clé publique `anon` |
+
+La clé `anon` est publique par nature : elle ne donne accès à rien sans compte,
+la sécurité repose entièrement sur les règles au niveau des lignes.
+
+### 5. Autoriser l'adresse du site
+
+Dans Supabase > Authentication > URL Configuration, mettre l'URL Netlify en
+**Site URL** et en **Redirect URL**, sinon les liens de confirmation d'adresse
+renvoient vers `localhost`.
+
+## Sécurité
+
+Le schéma pose la sécurité au niveau des lignes :
+
+- **L'organisation n'est jamais déclarée par l'utilisateur.** Elle est déduite du
+  domaine de son adresse au moment de créer son profil. Personne ne peut se
+  présenter comme Alyxa avec une adresse Septodont, ni l'inverse.
+- **Tout membre voit tous les leads et toutes les discussions.** C'est le principe
+  du partenariat : chacun doit savoir ce que son contact est devenu.
+- **On n'écrit qu'en son propre nom**, et le fil est en insertion seule : aucune
+  règle ne permet de modifier ou d'effacer un message déjà posté.
+- **Les états de lecture sont privés** à chaque personne.
+
+## Déploiement statique ailleurs
+
+`npm run build` produit un site statique dans `dist/`, publiable tel quel. Le
+routage passe par le fragment d'URL, donc aucune règle de réécriture n'est
+nécessaire côté serveur.
 
 `npm run build:page` produit en plus `dist/page-autonome.html` : l'application
 entière dans un seul fichier, sans aucune ressource externe.

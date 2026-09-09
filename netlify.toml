@@ -1,0 +1,23 @@
+# Configuration Netlify. Rien a regler dans l'interface : tout est ici.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Le routage passe par le fragment d'URL, mais cette regle protege les liens
+# profonds si on repasse un jour a un routage par chemin.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# En-tetes de securite de base pour une application interne.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

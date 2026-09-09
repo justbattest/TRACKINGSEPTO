@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 import { Bouton, Champ, classesSaisie, Modale } from '@/components/ui'
 import { useStore } from '@/lib/store'
-import { MOTIFS, RESPONSABLE, type Sens } from '@/lib/types'
+import { AUTRE, LIBELLE_ORGANISATION, MOTIFS, type Organisation, type Sens } from '@/lib/types'
 
 /** Saisie d'un lead, dans un sens ou dans l'autre. */
 export default function FormulaireLead({
@@ -12,8 +12,12 @@ export default function FormulaireLead({
   sensInitial: Sens
   onFermer: () => void
 }) {
-  const { regions, ajouterLead, moi } = useStore()
+  const { regions, ajouterLead, moi, maMaison } = useStore()
   const [sens, setSens] = useState<Sens>(sensInitial)
+  const autre = AUTRE[maMaison]
+  /** Qui transmet, et donc qui recoit — c'est ce couple qui pilote le reste. */
+  const origine: Organisation = sens === 'envoye' ? maMaison : autre
+  const cible: Organisation = AUTRE[origine]
   const [message, setMessage] = useState('')
   const [valeurs, setValeurs] = useState({
     structure: '',
@@ -23,7 +27,7 @@ export default function FormulaireLead({
     ville: '',
     codePostal: '',
     regionId: regions[0]?.id ?? '',
-    motif: MOTIFS[sensInitial][0],
+    motif: '',
   })
 
   const maj =
@@ -31,11 +35,9 @@ export default function FormulaireLead({
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setValeurs((v) => ({ ...v, [cle]: e.target.value }))
 
-  function changerSens(nouveau: Sens) {
-    setSens(nouveau)
-    // Les motifs dependent du sens : on repart sur une valeur valide.
-    setValeurs((v) => ({ ...v, motif: MOTIFS[nouveau][0] }))
-  }
+  // Les motifs sont ceux de la maison qui recoit : ils changent avec le sens.
+  const motifs = MOTIFS[cible]
+  const motif = motifs.includes(valeurs.motif) ? valeurs.motif : motifs[0]
 
   const complet = valeurs.structure.trim() && valeurs.contact.trim() && moi
 
@@ -46,7 +48,7 @@ export default function FormulaireLead({
         onSubmit={(e) => {
           e.preventDefault()
           if (!complet) return
-          ajouterLead({ ...valeurs, sens, transmisParId: moi!.id }, message)
+          ajouterLead({ ...valeurs, motif, origine, transmisParId: moi!.id }, message)
           onFermer()
         }}
       >
@@ -59,7 +61,7 @@ export default function FormulaireLead({
               <button
                 key={s}
                 type="button"
-                onClick={() => changerSens(s)}
+                onClick={() => setSens(s)}
                 aria-pressed={actif}
                 className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-left transition-colors ${
                   actif
@@ -82,10 +84,12 @@ export default function FormulaireLead({
                 />
                 <span>
                   <span className="block text-[13.5px] font-semibold">
-                    {s === 'envoye' ? 'On l’envoie à Septodont' : 'Septodont nous l’envoie'}
+                    {s === 'envoye'
+                      ? `On l’envoie à ${LIBELLE_ORGANISATION[autre]}`
+                      : `${LIBELLE_ORGANISATION[autre]} nous l’envoie`}
                   </span>
                   <span className="mt-0.5 block text-[12px] text-encre-2">
-                    {RESPONSABLE[s]} prend le contact en charge
+                    {LIBELLE_ORGANISATION[s === 'envoye' ? autre : maMaison]} prend le contact en charge
                   </span>
                 </span>
               </button>
@@ -133,8 +137,8 @@ export default function FormulaireLead({
             </select>
           </Champ>
           <Champ label="Motif">
-            <select value={valeurs.motif} onChange={maj('motif')} className={classesSaisie}>
-              {MOTIFS[sens].map((m) => (
+            <select value={motif} onChange={maj('motif')} className={classesSaisie}>
+              {motifs.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
@@ -143,7 +147,7 @@ export default function FormulaireLead({
 
         <Champ
           label="Mot d’accompagnement"
-          aide="Il ouvre la discussion sur le lead. C’est ce que l’autre équipe lira en premier."
+          aide={`Il ouvre la discussion sur le lead. C’est ce que l’équipe ${LIBELLE_ORGANISATION[cible]} lira en premier.`}
         >
           <textarea
             value={message}

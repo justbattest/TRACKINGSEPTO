@@ -1,7 +1,15 @@
 /** Briques d'interface partagees par toutes les pages. */
 import { ArrowDownLeft, ArrowUpRight, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { initiales, LIBELLE_SENS_COURT, LIBELLE_STATUT, type Sens, type Statut } from '@/lib/types'
+import {
+  initiales,
+  libelleSens,
+  LIBELLE_SENS_COURT,
+  LIBELLE_STATUT,
+  type Organisation,
+  type Sens,
+  type Statut,
+} from '@/lib/types'
 
 export function Carte({
   titre,
@@ -83,10 +91,19 @@ export function EtiquetteStatut({ statut }: { statut: Statut }) {
 }
 
 /**
- * Badge de sens. La fleche porte l'information autant que la couleur, pour que
- * le sens reste lisible en noir et blanc comme pour un lecteur daltonien.
+ * Badge de sens, du point de vue de la maison qui regarde. La fleche porte
+ * l'information autant que la couleur, pour que le sens reste lisible en noir
+ * et blanc comme pour un lecteur daltonien.
  */
-export function EtiquetteSens({ sens, complet }: { sens: Sens; complet?: boolean }) {
+export function EtiquetteSens({
+  sens,
+  maison,
+  complet,
+}: {
+  sens: Sens
+  maison: Organisation
+  complet?: boolean
+}) {
   const recu = sens === 'recu'
   const Fleche = recu ? ArrowDownLeft : ArrowUpRight
   return (
@@ -98,7 +115,7 @@ export function EtiquetteSens({ sens, complet }: { sens: Sens; complet?: boolean
       }`}
     >
       <Fleche size={13} />
-      {complet ? (recu ? 'Reçu de Septodont' : 'Envoyé à Septodont') : LIBELLE_SENS_COURT[sens]}
+      {complet ? libelleSens(sens, maison) : LIBELLE_SENS_COURT[sens]}
     </span>
   )
 }

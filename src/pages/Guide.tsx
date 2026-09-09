@@ -9,10 +9,16 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import Entete from '@/components/Entete'
+import { useStore } from '@/lib/store'
 import { Carte, EtiquetteStatut } from '@/components/ui'
-import { MOTIFS, STATUTS, type Statut } from '@/lib/types'
+import { AUTRE, LIBELLE_ORGANISATION, MOTIFS, STATUTS, type Statut } from '@/lib/types'
 
 export default function Guide() {
+  const { maMaison } = useStore()
+  const autre = AUTRE[maMaison]
+  const nous = LIBELLE_ORGANISATION[maMaison]
+  const eux = LIBELLE_ORGANISATION[autre]
+
   return (
     <>
       <Entete
@@ -26,11 +32,15 @@ export default function Guide() {
             <Repeat2 size={19} /> Le principe
           </h2>
           <p className="mt-2 text-[14px] leading-relaxed text-encre">
-            Alyxa et Septodont se passent des contacts. Quand un cabinet nous dit qu’il est ouvert à
-            être recontacté par la division chirurgie, c’est un lead pour Septodont. Quand un
-            commercial Septodont rencontre un praticien intéressé par Alyxa, c’est un lead pour nous.
-            Cet outil enregistre les deux sens, garde la trace de ce que chaque lead devient, et
-            donne un endroit pour en discuter. Rien de plus.
+            Alyxa et Septodont se passent des contacts. Quand un cabinet se dit ouvert à être
+            recontacté par la division chirurgie, c’est un lead pour Septodont. Quand un commercial
+            Septodont rencontre un praticien intéressé par le suivi post-consultation, c’est un lead
+            pour Alyxa. Cet outil enregistre les deux sens, garde la trace de ce que chaque lead
+            devient, et donne un endroit pour en discuter. Rien de plus.
+            <span className="mt-2 block text-[13px] text-encre-2">
+              Vous êtes connecté côté <strong className="font-semibold text-encre">{nous}</strong> :
+              tout l’outil est présenté de votre point de vue.
+            </span>
           </p>
         </section>
 
@@ -39,14 +49,14 @@ export default function Guide() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <SensCarte
               sortant
-              titre="On envoie à Septodont"
-              texte="Un cabinet ouvert à être recontacté sur la chirurgie, l’implantologie, l’anesthésie ou les consommables. Une fois transmis, c’est Septodont qui prend le contact en charge et qui fait avancer le statut."
-              motifs={MOTIFS.envoye}
+              titre={`On envoie à ${eux}`}
+              texte={`Un contact qui intéresse ${eux}. Une fois transmis, c’est leur équipe qui prend le contact en charge et qui fait avancer le statut — vous suivez sans avoir à relancer.`}
+              motifs={MOTIFS[autre]}
             />
             <SensCarte
-              titre="Septodont nous envoie"
-              texte="Un praticien rencontré en clientèle ou sur un salon, intéressé par Alyxa. Une fois transmis, c’est nous qui appelons, qui faisons la démo, et qui tenons le statut à jour."
-              motifs={MOTIFS.recu}
+              titre={`${eux} nous envoie`}
+              texte={`Un contact qui nous intéresse, rencontré en clientèle ou sur un salon. Une fois transmis, c’est nous qui appelons, qui faisons la démo, et qui tenons le statut à jour.`}
+              motifs={MOTIFS[maMaison]}
             />
           </div>
           <p className="mt-3 text-[13px] leading-relaxed text-encre-2">
