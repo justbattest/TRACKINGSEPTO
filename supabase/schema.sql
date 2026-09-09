@@ -271,6 +271,29 @@ create policy "chacun gere ses lectures" on lectures
   with check (membre_id = mon_membre());
 
 -- ----------------------------------------------------------------------------
+-- Droits sur les fonctions
+--
+-- Postgres accorde l'execution a tout le monde par defaut. On reprend ces
+-- droits et on ne rend que le strict necessaire.
+-- ----------------------------------------------------------------------------
+
+-- Fonction de declencheur : elle s'execute avec les droits du proprietaire de
+-- la table, jamais appelee directement. Personne n'a besoin de l'atteindre.
+revoke execute on function public.refleter_evenement() from public, anon, authenticated;
+
+-- Lue par les regles au niveau des lignes : le role authentifie doit pouvoir
+-- l'executer, mais un visiteur anonyme n'a rien a y faire.
+revoke execute on function public.mon_membre() from public, anon;
+grant  execute on function public.mon_membre() to authenticated;
+
+-- Creation de profil : reservee a une session ouverte.
+revoke execute on function public.creer_mon_membre(text) from public, anon;
+grant  execute on function public.creer_mon_membre(text) to authenticated;
+
+comment on table public.domaines_autorises is
+  'Controle d''acces de l''outil. Aucune regle de lecture : deliberement invisible via l''API. Ajouter un domaine ouvre l''inscription a cette maison.';
+
+-- ----------------------------------------------------------------------------
 -- Temps reel : les messages arrivent sans rechargement.
 -- ----------------------------------------------------------------------------
 

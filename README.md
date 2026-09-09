@@ -105,19 +105,16 @@ d'environnement. Le code des pages est identique dans les deux cas.
 
 ## Mise en service
 
-### 1. Créer le projet Supabase
+### 1. Le projet Supabase — fait
 
-Sur [supabase.com](https://supabase.com), créer un projet en région **Europe
-(Paris ou Francfort)** — les leads sont des données professionnelles de
-praticiens français.
+Projet **`echange-septodont`**, organisation Alyxa, région **eu-west-3 (Paris)**.
+Le schéma de `supabase/schema.sql` y est déjà appliqué : tables, règles d'accès,
+fonction de création de compte, temps réel.
 
-### 2. Poser le schéma
+Pour le rejouer ou le poser ailleurs, coller le fichier dans l'éditeur SQL. Il
+est idempotent.
 
-Coller `supabase/schema.sql` dans l'éditeur SQL du projet et exécuter. Il crée
-les tables, les règles d'accès, la fonction de création de compte et le temps
-réel. Il est réexécutable sans risque.
-
-### 3. Ouvrir les bons domaines
+### 2. Ouvrir les bons domaines
 
 Le schéma amorce `alyxa.fr`, `septodont.com` et `septodont.fr`. Pour en ajouter
 un :
@@ -130,21 +127,21 @@ values ('mondomaine.fr', 'septodont');
 **C'est le seul contrôle d'accès.** Une adresse hors de cette liste peut créer
 un compte, mais ne peut pas créer de profil : elle ne voit rien.
 
-### 4. Déployer sur Netlify
+### 3. Déployer sur Netlify
 
 Connecter le dépôt GitHub à Netlify. `netlify.toml` fournit déjà la commande de
 build et le dossier de publication. Il reste à renseigner, dans
 **Site settings > Environment variables** :
 
-| Variable | Où la trouver |
+| Variable | Valeur |
 |---|---|
-| `VITE_SUPABASE_URL` | Supabase > Settings > API > Project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase > Settings > API > clé publique `anon` |
+| `VITE_SUPABASE_URL` | `https://wchgdnnfzuzzwipwhxzw.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | la clé publique `anon` du projet (Supabase > Settings > API) |
 
 La clé `anon` est publique par nature : elle ne donne accès à rien sans compte,
 la sécurité repose entièrement sur les règles au niveau des lignes.
 
-### 5. Autoriser l'adresse du site
+### 4. Autoriser l'adresse du site
 
 Dans Supabase > Authentication > URL Configuration, mettre l'URL Netlify en
 **Site URL** et en **Redirect URL**, sinon les liens de confirmation d'adresse
@@ -162,6 +159,11 @@ Le schéma pose la sécurité au niveau des lignes :
 - **On n'écrit qu'en son propre nom**, et le fil est en insertion seule : aucune
   règle ne permet de modifier ou d'effacer un message déjà posté.
 - **Les états de lecture sont privés** à chaque personne.
+
+Ces règles sont vérifiées en base, pas seulement dans l'application : douze
+contrôles ont été passés en simulant deux sessions authentifiées — compte sans
+profil aveugle, organisation déduite du domaine, domaine non autorisé refusé,
+transmission au nom d'autrui refusée, fil inaltérable, lectures cloisonnées.
 
 ## Déploiement statique ailleurs
 
