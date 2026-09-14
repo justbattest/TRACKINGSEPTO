@@ -148,17 +148,25 @@ export function Champ({
   label,
   children,
   aide,
+  sansLiaison,
 }: {
   label: string
   children: ReactNode
   aide?: string
+  /**
+   * Rend un <div> au lieu d'un <label>. Indispensable des que le contenu n'est
+   * pas une saisie native : un <label> renvoie tout clic interne vers son
+   * premier controle, ce qui rouvre aussitot un menu qu'on vient de fermer.
+   */
+  sansLiaison?: boolean
 }) {
+  const Enveloppe = sansLiaison ? 'div' : 'label'
   return (
-    <label className="block">
+    <Enveloppe className="block">
       <span className="mb-1.5 block text-[12.5px] font-medium text-encre-2">{label}</span>
       {children}
       {aide && <span className="mt-1 block text-[11.5px] text-encre-3">{aide}</span>}
-    </label>
+    </Enveloppe>
   )
 }
 

@@ -1,15 +1,15 @@
 import { useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Plus, Search, UserPlus } from 'lucide-react'
+import { Check, ChevronDown, Search } from 'lucide-react'
+import { Avatar } from '@/components/ui'
 import { useStore } from '@/lib/store'
-import { AUTRE, LIBELLE_ORGANISATION, type Apporteur, type Organisation } from '@/lib/types'
+import { AUTRE, LIBELLE_ORGANISATION, type Membre, type Organisation } from '@/lib/types'
 
 /**
  * Choix de la personne qui a AMENE le lead.
  *
  * C'est le champ le plus important du formulaire : l'equipe de l'apporteur
- * determine a qui le lead est compte. On peut designer quelqu'un qui n'a pas
- * de compte — un commercial terrain doit pouvoir etre credite sans jamais
- * ouvrir l'outil.
+ * determine a qui le lead est compte. Distinct de celui qui saisit — les deux
+ * divergent des qu'une equipe enregistre pour l'autre.
  */
 export default function ChoixApporteur({
   valeur,
@@ -17,45 +17,30 @@ export default function ChoixApporteur({
   autoFocus,
 }: {
   valeur: string
-  onChange: (apporteurId: string) => void
+  onChange: (membreId: string) => void
   autoFocus?: boolean
 }) {
-  const { apporteurs, apporteurDe, ajouterApporteur, maMaison } = useStore()
+  const { membres, membreDe, maMaison } = useStore()
   const [ouvert, setOuvert] = useState(false)
   const [recherche, setRecherche] = useState('')
-  const [occupe, setOccupe] = useState(false)
   const conteneur = useRef<HTMLDivElement>(null)
 
-  const choisi = apporteurDe(valeur)
+  const choisi = membreDe(valeur)
 
   const groupes = useMemo(() => {
     const q = recherche.trim().toLowerCase()
-    const filtres = q
-      ? apporteurs.filter((a) => a.nom.toLowerCase().includes(q))
-      : apporteurs
+    const filtres = q ? membres.filter((m) => m.nom.toLowerCase().includes(q)) : membres
     // Ma maison en premier : c'est le cas le plus frequent.
     const ordre: Organisation[] = [maMaison, AUTRE[maMaison]]
     return ordre
-      .map((org) => ({ org, gens: filtres.filter((a) => a.organisation === org) }))
+      .map((org) => ({ org, gens: filtres.filter((m) => m.organisation === org) }))
       .filter((g) => g.gens.length > 0)
-  }, [apporteurs, recherche, maMaison])
+  }, [membres, recherche, maMaison])
 
-  /** Un nom saisi qui ne correspond a personne peut etre cree a la volee. */
-  const nomNouveau = recherche.trim()
-  const dejaPris = apporteurs.some((a) => a.nom.trim().toLowerCase() === nomNouveau.toLowerCase())
-  const peutCreer = nomNouveau.length >= 2 && !dejaPris
-
-  function selectionner(apporteur: Apporteur) {
-    onChange(apporteur.id)
+  function selectionner(membre: Membre) {
+    onChange(membre.id)
     setOuvert(false)
     setRecherche('')
-  }
-
-  async function creer(organisation: Organisation) {
-    setOccupe(true)
-    const apporteur = await ajouterApporteur(nomNouveau, organisation)
-    setOccupe(false)
-    if (apporteur) selectionner(apporteur)
   }
 
   return (
@@ -76,6 +61,7 @@ export default function ChoixApporteur({
       >
         {choisi ? (
           <span className="flex min-w-0 items-center gap-2">
+            <Avatar membre={choisi} taille={22} />
             <span className="truncate font-medium">{choisi.nom}</span>
             <EtiquetteMaison organisation={choisi.organisation} />
           </span>
@@ -87,64 +73,46 @@ export default function ChoixApporteur({
 
       {ouvert && (
         <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-bord bg-carte shadow-lg">
-          <div className="relative border-b border-bord">
-            <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3" />
-            <input
-              autoFocus
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder="Rechercher ou saisir un nouveau nom…"
-              className="w-full bg-transparent py-2.5 pr-3 pl-9 text-[13.5px] outline-none"
-            />
-          </div>
+          {membres.length > 6 && (
+            <div className="relative border-b border-bord">
+              <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-encre-3" />
+              <input
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder="Rechercher une personne…"
+                className="w-full bg-transparent py-2.5 pr-3 pl-9 text-[13.5px] outline-none"
+              />
+            </div>
+          )}
 
-          <div className="max-h-64 overflow-y-auto py-1">
+          <div className="max-h-72 overflow-y-auto py-1">
             {groupes.map(({ org, gens }) => (
               <div key={org}>
                 <div className="px-3 py-1.5 text-[11px] font-semibold tracking-wide text-encre-3 uppercase">
                   {LIBELLE_ORGANISATION[org]}
                 </div>
-                {gens.map((a) => (
+                {gens.map((m) => (
                   <button
-                    key={a.id}
+                    key={m.id}
                     type="button"
-                    onClick={() => selectionner(a)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-fond"
+                    // On empeche le vol de focus : sans cela, le va-et-vient de
+                    // blur rouvre le menu juste apres l'avoir ferme.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectionner(m)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-fond"
                   >
-                    <span className="min-w-0 flex-1 truncate">{a.nom}</span>
-                    {!a.membreId && (
-                      <span className="shrink-0 text-[11px] text-encre-3">sans compte</span>
+                    <Avatar membre={m} taille={24} />
+                    <span className="min-w-0 flex-1 truncate">{m.nom}</span>
+                    {m.id === valeur && (
+                      <Check size={14} className="shrink-0 text-[var(--color-marque)]" />
                     )}
-                    {a.id === valeur && <Check size={14} className="shrink-0 text-[var(--color-marque)]" />}
                   </button>
                 ))}
               </div>
             ))}
 
-            {groupes.length === 0 && !peutCreer && (
+            {groupes.length === 0 && (
               <p className="px-3 py-4 text-center text-[13px] text-encre-3">Personne à ce nom.</p>
-            )}
-
-            {peutCreer && (
-              <div className="border-t border-bord px-3 py-2.5">
-                <div className="mb-2 flex items-center gap-1.5 text-[12.5px] text-encre-2">
-                  <UserPlus size={14} />
-                  Ajouter « <strong className="font-semibold text-encre">{nomNouveau}</strong> » chez
-                </div>
-                <div className="flex gap-2">
-                  {([maMaison, AUTRE[maMaison]] as Organisation[]).map((org) => (
-                    <button
-                      key={org}
-                      type="button"
-                      disabled={occupe}
-                      onClick={() => void creer(org)}
-                      className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-bord-fort px-3 py-1.5 text-[12.5px] font-medium transition-colors hover:bg-fond disabled:opacity-40"
-                    >
-                      <Plus size={13} /> {LIBELLE_ORGANISATION[org]}
-                    </button>
-                  ))}
-                </div>
-              </div>
             )}
           </div>
         </div>

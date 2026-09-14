@@ -105,21 +105,6 @@ export interface Region {
 }
 
 /**
- * Une personne qui APPORTE des leads. Distincte du membre : un commercial
- * terrain peut etre credite de ses leads sans jamais ouvrir l'outil.
- *
- * C'est l'apporteur qui determine a quelle equipe un lead est compte — pas
- * celui qui l'a saisi. Les deux divergent des qu'une equipe saisit pour l'autre.
- */
-export interface Apporteur {
-  id: string
-  nom: string
-  organisation: Organisation
-  /** Renseigne quand l'apporteur a aussi un compte dans l'outil. */
-  membreId?: string | null
-}
-
-/**
  * Une personne qui utilise l'outil. Sa couleur l'identifie dans les
  * discussions : on reconnait qui parle avant meme d'avoir lu le nom.
  */
@@ -189,7 +174,7 @@ export interface Lead {
   regionId: string
   /** Pourquoi ce lead a ete transmis. */
   motif: string
-  /** Apporteur qui a amene le lead. C'est lui qui fixe `origine`. */
+  /** Membre qui a AMENE le lead. C'est lui qui fixe `origine`. */
   apporteParId: string
   /** Membre qui a SAISI le lead dans l'outil. Tracabilite seule. */
   transmisParId: string

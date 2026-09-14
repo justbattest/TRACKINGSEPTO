@@ -6,7 +6,6 @@
  */
 import { client } from './supabase'
 import type {
-  Apporteur,
   Evenement,
   Lead,
   Membre,
@@ -20,13 +19,6 @@ interface LigneMembre {
   nom: string
   organisation: Organisation
   couleur: string
-}
-
-interface LigneApporteur {
-  id: string
-  nom: string
-  organisation: Organisation
-  membre_id: string | null
 }
 
 interface LigneLead {
@@ -59,7 +51,6 @@ interface LigneEvenement {
 export interface Instantane {
   regions: Region[]
   membres: Membre[]
-  apporteurs: Apporteur[]
   leads: Lead[]
   lectures: Record<string, string>
 }
@@ -106,16 +97,15 @@ export async function creerMonMembre(nom: string, organisation: Organisation): P
  */
 export async function charger(membreId: string): Promise<Instantane> {
   const db = client()
-  const [regions, membres, apporteurs, leads, evenements, lectures] = await Promise.all([
+  const [regions, membres, leads, evenements, lectures] = await Promise.all([
     db.from('regions').select('id, nom').order('nom'),
     db.from('membres').select('id, nom, organisation, couleur').eq('actif', true).order('nom'),
-    db.from('apporteurs').select('id, nom, organisation, membre_id').eq('actif', true).order('nom'),
     db.from('leads').select('*').order('dernier_mouvement', { ascending: false }),
     db.from('evenements').select('*').order('survenu_le'),
     db.from('lectures').select('lead_id, lu_jusqua').eq('membre_id', membreId),
   ])
 
-  for (const r of [regions, membres, apporteurs, leads, evenements, lectures]) {
+  for (const r of [regions, membres, leads, evenements, lectures]) {
     if (r.error) throw r.error
   }
 
@@ -137,12 +127,6 @@ export async function charger(membreId: string): Promise<Instantane> {
   return {
     regions: (regions.data ?? []) as Region[],
     membres: (membres.data ?? []) as Membre[],
-    apporteurs: ((apporteurs.data ?? []) as LigneApporteur[]).map((a) => ({
-      id: a.id,
-      nom: a.nom,
-      organisation: a.organisation,
-      membreId: a.membre_id,
-    })),
     leads: ((leads.data ?? []) as LigneLead[]).map((l) => ({
       id: l.id,
       origine: l.origine,
@@ -170,7 +154,7 @@ export async function charger(membreId: string): Promise<Instantane> {
 }
 
 export interface NouveauLeadDistant {
-  /** L'equipe du lead se deduit de cet apporteur, cote base. */
+  /** Membre apporteur : son equipe fixe l'origine du lead, cote base. */
   apporteParId: string
   structure: string
   contact: string
@@ -231,25 +215,6 @@ export async function creerLeads(
   if (erreurFil) throw erreurFil
 
   return ids
-}
-
-/** Ajoute un apporteur, ou renvoie celui qui porte deja ce nom dans l'equipe. */
-export async function creerApporteur(
-  nom: string,
-  organisation: Organisation,
-): Promise<Apporteur> {
-  const { data, error } = await client().rpc('creer_apporteur', {
-    nom_complet: nom,
-    organisation_choisie: organisation,
-  })
-  if (error) throw error
-  const ligne = (Array.isArray(data) ? data[0] : data) as LigneApporteur
-  return {
-    id: ligne.id,
-    nom: ligne.nom,
-    organisation: ligne.organisation,
-    membreId: ligne.membre_id,
-  }
 }
 
 export async function changerStatut(leadId: string, auteurId: string, statut: Statut): Promise<void> {

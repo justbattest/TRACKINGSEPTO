@@ -35,14 +35,13 @@ export const brouillonComplet = (b: Brouillon): boolean =>
   b.structure.trim().length > 0 && b.contact.trim().length > 0
 
 export default function FormulaireLead({ onFermer }: { onFermer: () => void }) {
-  const { regions, ajouterLeads, moi, apporteurDe, apporteurs } = useStore()
+  const { regions, ajouterLeads, moi, membreDe } = useStore()
 
   // Par defaut, on se designe soi-meme : c'est le cas le plus frequent.
-  const moiApporteur = apporteurs.find((a) => a.membreId === moi?.id)
-  const [apporteParId, setApporteParId] = useState(moiApporteur?.id ?? '')
+  const [apporteParId, setApporteParId] = useState(moi?.id ?? '')
   const [brouillon, setBrouillon] = useState<Brouillon>(() => brouillonVide(regions[0]?.id ?? ''))
 
-  const apporteur = apporteurDe(apporteParId)
+  const apporteur = membreDe(apporteParId)
   const cible: Organisation | undefined = apporteur && AUTRE[apporteur.organisation]
   const pret = Boolean(apporteur) && brouillonComplet(brouillon) && Boolean(moi)
 
@@ -79,7 +78,7 @@ export default function FormulaireLead({ onFermer }: { onFermer: () => void }) {
         }}
       >
         {/* L'apporteur d'abord : c'est lui qui decide a qui le lead est compte. */}
-        <Champ label="Apporté par *">
+        <Champ label="Apporté par *" sansLiaison>
           <ChoixApporteur valeur={apporteParId} onChange={setApporteParId} autoFocus />
         </Champ>
 

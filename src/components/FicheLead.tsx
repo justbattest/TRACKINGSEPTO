@@ -17,7 +17,7 @@ import {
 
 /** Fiche complete d'un lead : ses informations, son parcours, sa discussion. */
 export default function FicheLead({ leadId, onFermer }: { leadId: string; onFermer: () => void }) {
-  const { leadDe, membreDe, regionDe, apporteurDe, moi, maMaison, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
+  const { leadDe, membreDe, regionDe, moi, maMaison, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
     useStore()
   const lead = leadDe(leadId)
   const [brouillon, setBrouillon] = useState('')
@@ -34,7 +34,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
     finDuFil.current?.scrollIntoView({ block: 'end' })
   }, [lead?.fil.length])
 
-  const apporteur = apporteurDe(lead?.apporteParId ?? '')
+  const apporteur = membreDe(lead?.apporteParId ?? '')
   const saisisseur = membreDe(lead?.transmisParId ?? '')
   const jours = lead ? joursDepuis(lead.transmisLe) : 0
 

@@ -33,7 +33,7 @@ const TOUS = 'tous'
 type FiltreSens = Sens | typeof TOUS
 
 export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
-  const { leads, regions, apporteurs, regionDe, membreDe, apporteurDe, lectures, membreId, maMaison } = useStore()
+  const { leads, regions, membres, regionDe, membreDe, lectures, membreId, maMaison } = useStore()
 
   const [sens, setSens] = useState<FiltreSens>(TOUS)
   const [recherche, setRecherche] = useState('')
@@ -73,7 +73,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
       l.codePostal,
       regionDe(l.regionId),
       l.motif,
-      apporteurDe(l.apporteParId)?.nom ?? '',
+      membreDe(l.apporteParId)?.nom ?? '',
       membreDe(l.transmisParId)?.nom ?? '',
       formatDate(l.transmisLe),
       LIBELLE_STATUT[l.statut],
@@ -139,9 +139,9 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
           </select>
           <select value={apporteur} onChange={(e) => setApporteur(e.target.value)} className={classesListe}>
             <option value={TOUS}>Tous les apporteurs</option>
-            {apporteurs.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.nom} · {LIBELLE_ORGANISATION[a.organisation]}
+            {membres.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.nom} · {LIBELLE_ORGANISATION[m.organisation]}
               </option>
             ))}
           </select>
@@ -221,7 +221,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
                         <td className="px-3 py-3 text-encre-2">{l.motif}</td>
                         <td className="px-3 py-3">
                           <span className="block truncate text-encre-2">
-                            {apporteurDe(l.apporteParId)?.nom ?? '—'}
+                            {membreDe(l.apporteParId)?.nom ?? '—'}
                           </span>
                           <span className="block text-[12px] text-encre-3">
                             saisi par {membreDe(l.transmisParId)?.nom ?? '—'}
