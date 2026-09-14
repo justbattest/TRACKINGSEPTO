@@ -97,9 +97,14 @@ export default function Guide() {
                   quand. Rien ne disparaît en silence.
                 </Point>
                 <Point>
+                  <strong>Plusieurs leads d’un coup :</strong> « Ajouter un autre lead » autant de
+                  fois qu’il faut, puis « Créer les N leads ». L’apporteur est commun au lot, et
+                  chaque lead se replie en une ligne pour garder la page lisible.
+                </Point>
+                <Point>
                   Si un lead ressemble à un lead déjà présent, l’outil montre la fiche existante
                   avant de créer. À vous de trancher : un même cabinet peut très bien revenir avec
-                  un autre praticien.
+                  un autre praticien — ça, l’outil ne le signale même pas.
                 </Point>
               </ul>
             </div>
