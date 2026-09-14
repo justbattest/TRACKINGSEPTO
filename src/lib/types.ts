@@ -1,8 +1,8 @@
 /**
  * Modele de l'echange de leads Alyxa <-> Septodont.
  *
- * Un seul objet : le lead. Il porte l'organisation qui l'a transmis et suit le
- * meme parcours des deux cotes. Le sens — envoye ou recu — n'est jamais stocke :
+ * Un seul objet : le lead. Il porte l'apporteur qui l'a amene — d'ou se deduit
+ * l'equipe a qui il est compte — et suit le meme parcours des deux cotes. Le sens — envoye ou recu — n'est jamais stocke :
  * il se deduit de qui regarde, pour que les deux equipes voient la meme base
  * depuis leur propre point de vue. Pas de contrat, pas de commission : c'est un
  * echange, on compte ce qui circule et ce que ca donne.
@@ -105,6 +105,21 @@ export interface Region {
 }
 
 /**
+ * Une personne qui APPORTE des leads. Distincte du membre : un commercial
+ * terrain peut etre credite de ses leads sans jamais ouvrir l'outil.
+ *
+ * C'est l'apporteur qui determine a quelle equipe un lead est compte — pas
+ * celui qui l'a saisi. Les deux divergent des qu'une equipe saisit pour l'autre.
+ */
+export interface Apporteur {
+  id: string
+  nom: string
+  organisation: Organisation
+  /** Renseigne quand l'apporteur a aussi un compte dans l'outil. */
+  membreId?: string | null
+}
+
+/**
  * Une personne qui utilise l'outil. Sa couleur l'identifie dans les
  * discussions : on reconnait qui parle avant meme d'avoir lu le nom.
  */
@@ -158,7 +173,10 @@ export interface Evenement {
 
 export interface Lead {
   id: string
-  /** Maison qui a transmis le lead. Absolu : le sens s'en deduit par lecteur. */
+  /**
+   * Maison d'ou vient le lead. Absolu : le sens s'en deduit par lecteur.
+   * Derive de l'equipe de l'apporteur, jamais saisi a la main.
+   */
   origine: Organisation
   /** Cabinet, clinique ou structure concernee. */
   structure: string
@@ -171,7 +189,9 @@ export interface Lead {
   regionId: string
   /** Pourquoi ce lead a ete transmis. */
   motif: string
-  /** Membre qui a fait passer le lead, d'un cote comme de l'autre. */
+  /** Apporteur qui a amene le lead. C'est lui qui fixe `origine`. */
+  apporteParId: string
+  /** Membre qui a SAISI le lead dans l'outil. Tracabilite seule. */
   transmisParId: string
   /** Horodatage de transmission : la reference en cas de desaccord sur un volume. */
   transmisLe: string

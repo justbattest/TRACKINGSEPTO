@@ -6,6 +6,7 @@
  */
 import { client } from './supabase'
 import type {
+  Apporteur,
   Evenement,
   Lead,
   Membre,
@@ -21,9 +22,17 @@ interface LigneMembre {
   couleur: string
 }
 
+interface LigneApporteur {
+  id: string
+  nom: string
+  organisation: Organisation
+  membre_id: string | null
+}
+
 interface LigneLead {
   id: string
   origine: Organisation
+  apporte_par: string
   structure: string
   contact: string
   telephone: string | null
@@ -50,6 +59,7 @@ interface LigneEvenement {
 export interface Instantane {
   regions: Region[]
   membres: Membre[]
+  apporteurs: Apporteur[]
   leads: Lead[]
   lectures: Record<string, string>
 }
@@ -96,15 +106,16 @@ export async function creerMonMembre(nom: string, organisation: Organisation): P
  */
 export async function charger(membreId: string): Promise<Instantane> {
   const db = client()
-  const [regions, membres, leads, evenements, lectures] = await Promise.all([
+  const [regions, membres, apporteurs, leads, evenements, lectures] = await Promise.all([
     db.from('regions').select('id, nom').order('nom'),
     db.from('membres').select('id, nom, organisation, couleur').eq('actif', true).order('nom'),
+    db.from('apporteurs').select('id, nom, organisation, membre_id').eq('actif', true).order('nom'),
     db.from('leads').select('*').order('dernier_mouvement', { ascending: false }),
     db.from('evenements').select('*').order('survenu_le'),
     db.from('lectures').select('lead_id, lu_jusqua').eq('membre_id', membreId),
   ])
 
-  for (const r of [regions, membres, leads, evenements, lectures]) {
+  for (const r of [regions, membres, apporteurs, leads, evenements, lectures]) {
     if (r.error) throw r.error
   }
 
@@ -126,9 +137,16 @@ export async function charger(membreId: string): Promise<Instantane> {
   return {
     regions: (regions.data ?? []) as Region[],
     membres: (membres.data ?? []) as Membre[],
+    apporteurs: ((apporteurs.data ?? []) as LigneApporteur[]).map((a) => ({
+      id: a.id,
+      nom: a.nom,
+      organisation: a.organisation,
+      membreId: a.membre_id,
+    })),
     leads: ((leads.data ?? []) as LigneLead[]).map((l) => ({
       id: l.id,
       origine: l.origine,
+      apporteParId: l.apporte_par,
       structure: l.structure,
       contact: l.contact,
       telephone: l.telephone ?? '',
@@ -152,7 +170,8 @@ export async function charger(membreId: string): Promise<Instantane> {
 }
 
 export interface NouveauLeadDistant {
-  origine: Organisation
+  /** L'equipe du lead se deduit de cet apporteur, cote base. */
+  apporteParId: string
   structure: string
   contact: string
   telephone: string
@@ -164,43 +183,75 @@ export interface NouveauLeadDistant {
   transmisParId: string
 }
 
-/** Cree le lead, son entree « transmis », et le mot d'accompagnement s'il y en a un. */
-export async function creerLead(lead: NouveauLeadDistant, message?: string): Promise<void> {
+/**
+ * Cree un ou plusieurs leads d'un coup, chacun avec son entree « transmis » et
+ * son mot d'accompagnement. Renvoie les identifiants crees, dans l'ordre.
+ *
+ * Une seule validation de formulaire = un seul appel : c'est ce qui permettra
+ * de n'envoyer qu'une notification, quel que soit le nombre de leads.
+ */
+export async function creerLeads(
+  leads: { lead: NouveauLeadDistant; message?: string }[],
+): Promise<string[]> {
   const db = client()
   const { data, error } = await db
     .from('leads')
-    .insert({
-      origine: lead.origine,
-      structure: lead.structure,
-      contact: lead.contact,
-      telephone: lead.telephone || null,
-      email: lead.email || null,
-      ville: lead.ville || null,
-      code_postal: lead.codePostal || null,
-      region_id: lead.regionId || null,
-      motif: lead.motif,
-      transmis_par: lead.transmisParId,
-    })
+    .insert(
+      leads.map(({ lead }) => ({
+        apporte_par: lead.apporteParId,
+        transmis_par: lead.transmisParId,
+        structure: lead.structure,
+        contact: lead.contact,
+        telephone: lead.telephone || null,
+        email: lead.email || null,
+        ville: lead.ville || null,
+        code_postal: lead.codePostal || null,
+        region_id: lead.regionId || null,
+        motif: lead.motif,
+      })),
+    )
     .select('id')
-    .single()
   if (error) throw error
 
-  const entrees: Record<string, unknown>[] = [
-    { lead_id: data.id, auteur_id: lead.transmisParId, type: 'statut', statut: 'transmis' },
-  ]
-  if (message?.trim()) {
-    entrees.push({
-      lead_id: data.id,
-      auteur_id: lead.transmisParId,
-      type: 'message',
-      texte: message.trim(),
-    })
-  }
+  const ids = (data ?? []).map((l) => l.id as string)
+
+  // Le fil de chaque lead s'ouvre sur sa transmission, puis sur le mot
+  // d'accompagnement quand il y en a un.
+  const entrees = ids.flatMap((id, i) => {
+    const { lead, message } = leads[i]
+    const debut = [
+      { lead_id: id, auteur_id: lead.transmisParId, type: 'statut', statut: 'transmis' },
+    ]
+    return message?.trim()
+      ? [...debut, { lead_id: id, auteur_id: lead.transmisParId, type: 'message', texte: message.trim() }]
+      : debut
+  })
+
   const { error: erreurFil } = await db.from('evenements').insert(entrees)
   if (erreurFil) throw erreurFil
+
+  return ids
 }
 
-/** Le declencheur en base reporte le statut sur le lead : on n'ecrit que le fil. */
+/** Ajoute un apporteur, ou renvoie celui qui porte deja ce nom dans l'equipe. */
+export async function creerApporteur(
+  nom: string,
+  organisation: Organisation,
+): Promise<Apporteur> {
+  const { data, error } = await client().rpc('creer_apporteur', {
+    nom_complet: nom,
+    organisation_choisie: organisation,
+  })
+  if (error) throw error
+  const ligne = (Array.isArray(data) ? data[0] : data) as LigneApporteur
+  return {
+    id: ligne.id,
+    nom: ligne.nom,
+    organisation: ligne.organisation,
+    membreId: ligne.membre_id,
+  }
+}
+
 export async function changerStatut(leadId: string, auteurId: string, statut: Statut): Promise<void> {
   const { error } = await client()
     .from('evenements')

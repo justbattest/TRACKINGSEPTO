@@ -17,7 +17,7 @@ import {
 
 /** Fiche complete d'un lead : ses informations, son parcours, sa discussion. */
 export default function FicheLead({ leadId, onFermer }: { leadId: string; onFermer: () => void }) {
-  const { leadDe, membreDe, regionDe, moi, maMaison, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
+  const { leadDe, membreDe, regionDe, apporteurDe, moi, maMaison, changerStatut, envoyerMessage, marquerLu, supprimerLead } =
     useStore()
   const lead = leadDe(leadId)
   const [brouillon, setBrouillon] = useState('')
@@ -34,7 +34,8 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
     finDuFil.current?.scrollIntoView({ block: 'end' })
   }, [lead?.fil.length])
 
-  const transmetteur = membreDe(lead?.transmisParId ?? '')
+  const apporteur = apporteurDe(lead?.apporteParId ?? '')
+  const saisisseur = membreDe(lead?.transmisParId ?? '')
   const jours = lead ? joursDepuis(lead.transmisLe) : 0
 
   const fil = useMemo(() => lead?.fil ?? [], [lead])
@@ -60,10 +61,17 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
       }
       sous={
         <span>
-          Transmis par <strong className="font-semibold text-encre">{transmetteur?.nom ?? '—'}</strong>{' '}
+          Apporté par{' '}
+          <strong className="font-semibold text-encre">{apporteur?.nom ?? '—'}</strong>
+          {apporteur && (
+            <span className="text-encre-3"> ({LIBELLE_ORGANISATION[apporteur.organisation]})</span>
+          )}{' '}
           le {formatDate(lead.transmisLe)}
           {jours > 0 && <span className="text-encre-3"> · il y a {jours} jours</span>}
           <span className="text-encre-3"> · suivi par {LIBELLE_ORGANISATION[suivi]}</span>
+          <span className="mt-0.5 block text-[12px] text-encre-3">
+            Saisi dans l’outil par {saisisseur?.nom ?? '—'}
+          </span>
         </span>
       }
       onFermer={onFermer}

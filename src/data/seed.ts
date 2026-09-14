@@ -7,6 +7,7 @@ import {
   AUTRE,
   COULEURS_MEMBRE,
   MOTIFS,
+  type Apporteur,
   type Evenement,
   type Lead,
   type Membre,
@@ -46,6 +47,23 @@ export const MEMBRES: Membre[] = [
 const GENS: Record<Organisation, string[]> = {
   alyxa: ['a1', 'a2', 'a3'],
   septodont: ['s1', 's2', 's3', 's4'],
+}
+
+/**
+ * Les apporteurs. Chaque membre en est un, et deux commerciaux terrain s'y
+ * ajoutent sans compte — c'est tout l'interet de la notion : on credite
+ * quelqu'un qui n'ouvrira jamais l'outil.
+ */
+export const APPORTEURS: Apporteur[] = [
+  ...MEMBRES.map((m) => ({ id: `ap-${m.id}`, nom: m.nom, organisation: m.organisation, membreId: m.id })),
+  { id: 'ap-terrain-1', nom: 'Jérôme Allemane', organisation: 'septodont', membreId: null },
+  { id: 'ap-terrain-2', nom: 'Karim Haddad', organisation: 'septodont', membreId: null },
+]
+
+/** Les apporteurs d'une maison donnee. */
+const APPORTEURS_PAR_MAISON: Record<Organisation, Apporteur[]> = {
+  alyxa: APPORTEURS.filter((a) => a.organisation === 'alyxa'),
+  septodont: APPORTEURS.filter((a) => a.organisation === 'septodont'),
 }
 
 const VILLES: Record<string, [string, string][]> = {
@@ -136,6 +154,7 @@ const ISSUES: Record<Organisation, [Statut, number][]> = {
 export interface JeuDeDonnees {
   regions: Region[]
   membres: Membre[]
+  apporteurs: Apporteur[]
   leads: Lead[]
 }
 
@@ -181,15 +200,20 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
         // Le motif est celui de la maison qui recoit le lead.
         const cible = AUTRE[origine]
         const motifs = MOTIFS[cible]
+        // L'apporteur vient de la maison d'origine ; celui qui saisit est son
+        // compte quand il en a un, sinon un collegue de la meme maison.
+        const candidats = APPORTEURS_PAR_MAISON[origine]
+        const apporteur = candidats[Math.floor(rnd() * candidats.length)]
         const auteurs = GENS[origine]
         const receveurs = GENS[cible]
-        const auteurId = auteurs[Math.floor(rnd() * auteurs.length)]
+        const auteurId = apporteur.membreId ?? auteurs[Math.floor(rnd() * auteurs.length)]
         const receveurId = receveurs[Math.floor(rnd() * receveurs.length)]
         const fil = construireFil(origine, statut, transmisLe, auteurId, receveurId, leads.length, rnd, reference)
 
         leads.push({
           id: `l${leads.length + 1}`,
           origine,
+          apporteParId: apporteur.id,
           structure: `Cabinet dentaire ${ville}${rnd() > 0.65 ? ' Centre' : ''}`,
           contact: `Dr ${PRENOMS[Math.floor(rnd() * PRENOMS.length)]} ${NOMS[Math.floor(rnd() * NOMS.length)]}`,
           telephone: `0${1 + Math.floor(rnd() * 5)} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))} ${String(10 + Math.floor(rnd() * 89))}`,
@@ -207,7 +231,7 @@ export function genererDemo(reference: Date = new Date()): JeuDeDonnees {
     }
   }
 
-  return { regions: REGIONS, membres: MEMBRES, leads }
+  return { regions: REGIONS, membres: MEMBRES, apporteurs: APPORTEURS, leads }
 }
 
 /**

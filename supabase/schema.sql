@@ -57,6 +57,78 @@ create table if not exists membres (
 create index if not exists membres_organisation_idx on membres(organisation);
 
 -- ----------------------------------------------------------------------------
+-- Apporteurs
+--
+-- Qui a AMENE le lead, par opposition a qui l'a SAISI. Ces deux notions
+-- divergent en permanence dans un echange entre deux societes : une equipe
+-- saisit regulierement pour l'autre. Les confondre revient a dire a un
+-- partenaire que ses leads ne sont pas les siens.
+--
+-- Un apporteur n'a PAS besoin d'un compte : un commercial terrain doit pouvoir
+-- etre credite de ses leads sans jamais ouvrir l'outil.
+-- ----------------------------------------------------------------------------
+
+create table if not exists apporteurs (
+  id           uuid primary key default gen_random_uuid(),
+  nom          text not null check (length(trim(nom)) > 0),
+  organisation organisation not null,
+  membre_id    uuid references membres(id) on delete set null,
+  actif        boolean not null default true,
+  cree_le      timestamptz not null default now()
+);
+
+-- Deux « Jerome » chez Septodont sont impossibles ; un chez chaque maison, oui.
+create unique index if not exists apporteurs_nom_unique
+  on apporteurs (lower(trim(nom)), organisation);
+create index if not exists apporteurs_organisation_idx on apporteurs(organisation);
+
+alter table apporteurs enable row level security;
+
+drop policy if exists "apporteurs lisibles par les deux maisons" on apporteurs;
+create policy "apporteurs lisibles par les deux maisons" on apporteurs
+  for select to authenticated using (mon_membre() is not null);
+
+drop policy if exists "apporteurs modifiables par un membre" on apporteurs;
+create policy "apporteurs modifiables par un membre" on apporteurs
+  for update to authenticated using (mon_membre() is not null);
+
+-- Creation a la volee depuis le formulaire : on tape un nom, il existe.
+create or replace function creer_apporteur(nom_complet text, organisation_choisie text)
+returns apporteurs
+language plpgsql security definer set search_path = public as $$
+declare
+  v_org       organisation;
+  v_apporteur apporteurs;
+begin
+  if mon_membre() is null then
+    raise exception 'Vous devez avoir un profil pour ajouter un apporteur.';
+  end if;
+
+  begin
+    v_org := lower(trim(organisation_choisie))::organisation;
+  exception when others then
+    raise exception 'Équipe inconnue : choisissez Alyxa ou Septodont.';
+  end;
+
+  -- Un nom deja connu dans cette equipe est reutilise, jamais duplique.
+  select * into v_apporteur
+    from apporteurs
+   where lower(trim(nom)) = lower(trim(nom_complet)) and organisation = v_org;
+  if found then
+    return v_apporteur;
+  end if;
+
+  insert into apporteurs (nom, organisation)
+  values (trim(nom_complet), v_org)
+  returning * into v_apporteur;
+  return v_apporteur;
+end;
+$$;
+
+revoke execute on function creer_apporteur(text, text) from public, anon;
+grant  execute on function creer_apporteur(text, text) to authenticated;
+
+-- ----------------------------------------------------------------------------
 -- Leads
 -- ----------------------------------------------------------------------------
 
@@ -77,6 +149,10 @@ create table if not exists leads (
   code_postal       text,
   region_id         text references regions(id),
   motif             text not null,
+  -- Qui a AMENE le lead. C'est lui qui fixe `origine`, donc l'equipe a qui le
+  -- lead est compte.
+  apporte_par       uuid references apporteurs(id),
+  -- Qui a SAISI le lead dans l'outil. Tracabilite seule, jamais modifiable.
   transmis_par      uuid not null references membres(id),
   -- Horodatage de transmission : la reference en cas de desaccord sur un volume.
   transmis_le       timestamptz not null default now(),
@@ -86,6 +162,25 @@ create table if not exists leads (
 );
 
 create index if not exists leads_origine_idx   on leads(origine);
+create index if not exists leads_apporteur_idx on leads(apporte_par);
+
+-- L'origine suit l'apporteur, toujours. Une seule source de verite.
+create or replace function origine_suit_apporteur() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.apporte_par is not null then
+    select organisation into new.origine from apporteurs where id = new.apporte_par;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists leads_origine_suit_apporteur on leads;
+create trigger leads_origine_suit_apporteur
+  before insert or update of apporte_par on leads
+  for each row execute function origine_suit_apporteur();
+
+revoke execute on function origine_suit_apporteur() from public, anon, authenticated;
 create index if not exists leads_statut_idx    on leads(statut);
 create index if not exists leads_region_idx    on leads(region_id);
 create index if not exists leads_transmis_idx  on leads(transmis_le desc);

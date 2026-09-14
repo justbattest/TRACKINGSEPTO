@@ -3,7 +3,6 @@ import { Download, Plus, Search, X } from 'lucide-react'
 import Entete from '@/components/Entete'
 import FormulaireLead from '@/components/FormulaireLead'
 import {
-  Avatar,
   Bouton,
   Carte,
   classesListe,
@@ -34,14 +33,14 @@ const TOUS = 'tous'
 type FiltreSens = Sens | typeof TOUS
 
 export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
-  const { leads, regions, membres, regionDe, membreDe, lectures, membreId, maMaison } = useStore()
+  const { leads, regions, apporteurs, regionDe, membreDe, apporteurDe, lectures, membreId, maMaison } = useStore()
 
   const [sens, setSens] = useState<FiltreSens>(TOUS)
   const [recherche, setRecherche] = useState('')
   const [statut, setStatut] = useState<string>(TOUS)
   const [region, setRegion] = useState<string>(TOUS)
-  const [transmetteur, setTransmetteur] = useState<string>(TOUS)
-  const [formulaire, setFormulaire] = useState<Sens | null>(null)
+  const [apporteur, setApporteur] = useState<string>(TOUS)
+  const [formulaire, setFormulaire] = useState(false)
 
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase()
@@ -49,7 +48,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
       .filter((l) => (sens === TOUS ? true : sensPour(l, maMaison) === sens))
       .filter((l) => (statut === TOUS ? true : l.statut === statut))
       .filter((l) => (region === TOUS ? true : l.regionId === region))
-      .filter((l) => (transmetteur === TOUS ? true : l.transmisParId === transmetteur))
+      .filter((l) => (apporteur === TOUS ? true : l.apporteParId === apporteur))
       .filter((l) =>
         q
           ? [l.structure, l.contact, l.ville, l.codePostal, l.email, l.motif].some((v) =>
@@ -58,12 +57,12 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
           : true,
       )
       .sort((a, b) => +new Date(dernierMouvement(b)) - +new Date(dernierMouvement(a)))
-  }, [leads, sens, recherche, statut, region, transmetteur, maMaison])
+  }, [leads, sens, recherche, statut, region, apporteur, maMaison])
 
-  const filtreActif = statut !== TOUS || region !== TOUS || transmetteur !== TOUS || recherche !== ''
+  const filtreActif = statut !== TOUS || region !== TOUS || apporteur !== TOUS || recherche !== ''
 
   function exporter() {
-    const entetes = ['Sens', 'Structure', 'Contact', 'Téléphone', 'Email', 'Ville', 'CP', 'Région', 'Motif', 'Transmis par', 'Transmis le', 'Statut', 'Dernier échange', 'Messages']
+    const entetes = ['Sens', 'Structure', 'Contact', 'Téléphone', 'Email', 'Ville', 'CP', 'Région', 'Motif', 'Apporté par', 'Saisi par', 'Transmis le', 'Statut', 'Dernier échange', 'Messages']
     const lignes = filtres.map((l) => [
       libelleSens(sensPour(l, maMaison), maMaison),
       l.structure,
@@ -74,6 +73,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
       l.codePostal,
       regionDe(l.regionId),
       l.motif,
+      apporteurDe(l.apporteParId)?.nom ?? '',
       membreDe(l.transmisParId)?.nom ?? '',
       formatDate(l.transmisLe),
       LIBELLE_STATUT[l.statut],
@@ -90,7 +90,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
           <Bouton onClick={exporter}>
             <Download size={15} /> Exporter
           </Bouton>
-          <Bouton variante="primaire" onClick={() => setFormulaire('envoye')}>
+          <Bouton variante="primaire" onClick={() => setFormulaire(true)}>
             <Plus size={15} /> Nouveau lead
           </Bouton>
         </div>
@@ -137,10 +137,12 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
               <option key={r.id} value={r.id}>{r.nom}</option>
             ))}
           </select>
-          <select value={transmetteur} onChange={(e) => setTransmetteur(e.target.value)} className={classesListe}>
-            <option value={TOUS}>Transmis par tous</option>
-            {membres.map((m) => (
-              <option key={m.id} value={m.id}>{m.nom}</option>
+          <select value={apporteur} onChange={(e) => setApporteur(e.target.value)} className={classesListe}>
+            <option value={TOUS}>Tous les apporteurs</option>
+            {apporteurs.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nom} · {LIBELLE_ORGANISATION[a.organisation]}
+              </option>
             ))}
           </select>
           {filtreActif && (
@@ -150,7 +152,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
                 setRecherche('')
                 setStatut(TOUS)
                 setRegion(TOUS)
-                setTransmetteur(TOUS)
+                setApporteur(TOUS)
               }}
             >
               <X size={14} /> Réinitialiser
@@ -174,7 +176,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
             <Vide
               message="Aucun lead ne correspond à ces filtres."
               action={
-                <Bouton variante="primaire" onClick={() => setFormulaire('envoye')}>
+                <Bouton variante="primaire" onClick={() => setFormulaire(true)}>
                   <Plus size={15} /> Ajouter un lead
                 </Bouton>
               }
@@ -187,7 +189,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
                     <th className="px-5 py-2.5 font-medium">Structure</th>
                     <th className="px-3 py-2.5 font-medium">Sens</th>
                     <th className="px-3 py-2.5 font-medium">Motif</th>
-                    <th className="px-3 py-2.5 font-medium">Transmis par</th>
+                    <th className="px-3 py-2.5 font-medium">Apporté par</th>
                     <th className="px-3 py-2.5 font-medium">Statut</th>
                     <th className="px-5 py-2.5 text-right font-medium">Dernier échange</th>
                   </tr>
@@ -218,9 +220,11 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
                         </td>
                         <td className="px-3 py-3 text-encre-2">{l.motif}</td>
                         <td className="px-3 py-3">
-                          <span className="flex items-center gap-2 text-encre-2">
-                            <Avatar membre={membreDe(l.transmisParId)} taille={22} titre />
-                            <span className="truncate">{membreDe(l.transmisParId)?.nom}</span>
+                          <span className="block truncate text-encre-2">
+                            {apporteurDe(l.apporteParId)?.nom ?? '—'}
+                          </span>
+                          <span className="block text-[12px] text-encre-3">
+                            saisi par {membreDe(l.transmisParId)?.nom ?? '—'}
                           </span>
                         </td>
                         <td className="px-3 py-3">
@@ -240,7 +244,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
         </Carte>
       </div>
 
-      {formulaire && <FormulaireLead sensInitial={formulaire} onFermer={() => setFormulaire(null)} />}
+      {formulaire && <FormulaireLead onFermer={() => setFormulaire(false)} />}
     </>
   )
 }

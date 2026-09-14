@@ -1,45 +1,73 @@
 import { useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Bouton, Champ, classesSaisie, Modale } from '@/components/ui'
-import { useStore } from '@/lib/store'
-import { AUTRE, LIBELLE_ORGANISATION, MOTIFS, type Organisation, type Sens } from '@/lib/types'
+import ChoixApporteur from '@/components/ChoixApporteur'
+import { useStore, type LeadASaisir } from '@/lib/store'
+import { AUTRE, LIBELLE_ORGANISATION, MOTIFS, type Organisation } from '@/lib/types'
 
-/** Saisie d'un lead, dans un sens ou dans l'autre. */
-export default function FormulaireLead({
-  sensInitial,
-  onFermer,
-}: {
-  sensInitial: Sens
-  onFermer: () => void
-}) {
-  const { regions, ajouterLead, moi, maMaison } = useStore()
-  const [sens, setSens] = useState<Sens>(sensInitial)
-  const autre = AUTRE[maMaison]
-  /** Qui transmet, et donc qui recoit — c'est ce couple qui pilote le reste. */
-  const origine: Organisation = sens === 'envoye' ? maMaison : autre
-  const cible: Organisation = AUTRE[origine]
-  const [message, setMessage] = useState('')
-  const [valeurs, setValeurs] = useState({
-    structure: '',
-    contact: '',
-    telephone: '',
-    email: '',
-    ville: '',
-    codePostal: '',
-    regionId: regions[0]?.id ?? '',
-    motif: '',
-  })
+/** Les champs d'un lead en cours de saisie. */
+export interface Brouillon {
+  structure: string
+  contact: string
+  telephone: string
+  email: string
+  ville: string
+  codePostal: string
+  regionId: string
+  motif: string
+  message: string
+}
 
-  const maj =
-    (cle: keyof typeof valeurs) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setValeurs((v) => ({ ...v, [cle]: e.target.value }))
+export const brouillonVide = (regionId: string): Brouillon => ({
+  structure: '',
+  contact: '',
+  telephone: '',
+  email: '',
+  ville: '',
+  codePostal: '',
+  regionId,
+  motif: '',
+  message: '',
+})
 
-  // Les motifs sont ceux de la maison qui recoit : ils changent avec le sens.
-  const motifs = MOTIFS[cible]
-  const motif = motifs.includes(valeurs.motif) ? valeurs.motif : motifs[0]
+/** Un lead est saisissable des qu'on sait de quelle structure et de qui il parle. */
+export const brouillonComplet = (b: Brouillon): boolean =>
+  b.structure.trim().length > 0 && b.contact.trim().length > 0
 
-  const complet = valeurs.structure.trim() && valeurs.contact.trim() && moi
+export default function FormulaireLead({ onFermer }: { onFermer: () => void }) {
+  const { regions, ajouterLeads, moi, apporteurDe, apporteurs } = useStore()
+
+  // Par defaut, on se designe soi-meme : c'est le cas le plus frequent.
+  const moiApporteur = apporteurs.find((a) => a.membreId === moi?.id)
+  const [apporteParId, setApporteParId] = useState(moiApporteur?.id ?? '')
+  const [brouillon, setBrouillon] = useState<Brouillon>(() => brouillonVide(regions[0]?.id ?? ''))
+
+  const apporteur = apporteurDe(apporteParId)
+  const cible: Organisation | undefined = apporteur && AUTRE[apporteur.organisation]
+  const pret = Boolean(apporteur) && brouillonComplet(brouillon) && Boolean(moi)
+
+  function valider() {
+    if (!pret || !moi || !apporteur) return
+    const lots: LeadASaisir[] = [
+      {
+        lead: {
+          apporteParId: apporteur.id,
+          transmisParId: moi.id,
+          structure: brouillon.structure,
+          contact: brouillon.contact,
+          telephone: brouillon.telephone,
+          email: brouillon.email,
+          ville: brouillon.ville,
+          codePostal: brouillon.codePostal,
+          regionId: brouillon.regionId,
+          motif: brouillon.motif || MOTIFS[AUTRE[apporteur.organisation]][0],
+        },
+        message: brouillon.message,
+      },
+    ]
+    ajouterLeads(lots)
+    onFermer()
+  }
 
   return (
     <Modale titre="Nouveau lead" onFermer={onFermer} large>
@@ -47,126 +75,141 @@ export default function FormulaireLead({
         className="space-y-5 px-6 py-5"
         onSubmit={(e) => {
           e.preventDefault()
-          if (!complet) return
-          ajouterLead({ ...valeurs, motif, origine, transmisParId: moi!.id }, message)
-          onFermer()
+          valider()
         }}
       >
-        {/* Le sens d'abord : il conditionne les motifs et le sens de lecture. */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {(['envoye', 'recu'] as Sens[]).map((s) => {
-            const actif = sens === s
-            const Fleche = s === 'recu' ? ArrowDownLeft : ArrowUpRight
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSens(s)}
-                aria-pressed={actif}
-                className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-left transition-colors ${
-                  actif
-                    ? s === 'recu'
-                      ? 'border-[var(--color-entrant)] bg-[var(--color-entrant-fond)]'
-                      : 'border-[var(--color-sortant)] bg-[var(--color-sortant-fond)]'
-                    : 'border-bord-fort hover:bg-fond'
-                }`}
-              >
-                <Fleche
-                  size={17}
-                  className="mt-0.5 shrink-0"
-                  style={{
-                    color: actif
-                      ? s === 'recu'
-                        ? 'var(--color-entrant-fonce)'
-                        : 'var(--color-sortant-fonce)'
-                      : 'var(--color-encre-3)',
-                  }}
-                />
-                <span>
-                  <span className="block text-[13.5px] font-semibold">
-                    {s === 'envoye'
-                      ? `On l’envoie à ${LIBELLE_ORGANISATION[autre]}`
-                      : `${LIBELLE_ORGANISATION[autre]} nous l’envoie`}
-                  </span>
-                  <span className="mt-0.5 block text-[12px] text-encre-2">
-                    {LIBELLE_ORGANISATION[s === 'envoye' ? autre : maMaison]} prend le contact en charge
-                  </span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Champ label="Structure *">
-            <input
-              required
-              autoFocus
-              value={valeurs.structure}
-              onChange={maj('structure')}
-              placeholder="Cabinet dentaire du Port"
-              className={classesSaisie}
-            />
-          </Champ>
-          <Champ label="Praticien ou contact *">
-            <input
-              required
-              value={valeurs.contact}
-              onChange={maj('contact')}
-              placeholder="Dr Claire Lambert"
-              className={classesSaisie}
-            />
-          </Champ>
-          <Champ label="Téléphone">
-            <input value={valeurs.telephone} onChange={maj('telephone')} placeholder="04 91 00 00 00" className={classesSaisie} />
-          </Champ>
-          <Champ label="Email">
-            <input type="email" value={valeurs.email} onChange={maj('email')} placeholder="contact@cabinet.fr" className={classesSaisie} />
-          </Champ>
-          <Champ label="Ville">
-            <input value={valeurs.ville} onChange={maj('ville')} placeholder="Marseille" className={classesSaisie} />
-          </Champ>
-          <Champ label="Code postal">
-            <input value={valeurs.codePostal} onChange={maj('codePostal')} placeholder="13008" className={classesSaisie} />
-          </Champ>
-          <Champ label="Région">
-            <select value={valeurs.regionId} onChange={maj('regionId')} className={classesSaisie}>
-              {regions.map((r) => (
-                <option key={r.id} value={r.id}>{r.nom}</option>
-              ))}
-            </select>
-          </Champ>
-          <Champ label="Motif">
-            <select value={motif} onChange={maj('motif')} className={classesSaisie}>
-              {motifs.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </Champ>
-        </div>
-
-        <Champ
-          label="Mot d’accompagnement"
-          aide={`Il ouvre la discussion sur le lead. C’est ce que l’équipe ${LIBELLE_ORGANISATION[cible]} lira en premier.`}
-        >
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={3}
-            placeholder="Le praticien pose beaucoup d’implants, il est ouvert à être recontacté."
-            className={`${classesSaisie} resize-y`}
-          />
+        {/* L'apporteur d'abord : c'est lui qui decide a qui le lead est compte. */}
+        <Champ label="Apporté par *">
+          <ChoixApporteur valeur={apporteParId} onChange={setApporteParId} autoFocus />
         </Champ>
+
+        {apporteur && cible && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-fond px-3.5 py-2.5 text-[12.5px] text-encre-2">
+            <span>
+              Compté pour{' '}
+              <strong className="font-semibold text-encre">
+                {LIBELLE_ORGANISATION[apporteur.organisation]}
+              </strong>
+            </span>
+            <ArrowRight size={13} className="text-encre-3" />
+            <span>
+              suivi par{' '}
+              <strong className="font-semibold text-encre">{LIBELLE_ORGANISATION[cible]}</strong>
+            </span>
+          </div>
+        )}
+
+        <BlocLead
+          valeur={brouillon}
+          onChange={setBrouillon}
+          cible={cible}
+          regions={regions}
+        />
 
         <div className="flex justify-end gap-2">
           <Bouton type="button" onClick={onFermer}>
             Annuler
           </Bouton>
-          <Bouton type="submit" variante="primaire" disabled={!complet}>
+          <Bouton type="submit" variante="primaire" disabled={!pret}>
             Enregistrer le lead
           </Bouton>
         </div>
       </form>
     </Modale>
+  )
+}
+
+/** Les champs d'un seul lead. Rendu une fois aujourd'hui, N fois demain. */
+export function BlocLead({
+  valeur,
+  onChange,
+  cible,
+  regions,
+}: {
+  valeur: Brouillon
+  onChange: (b: Brouillon) => void
+  cible: Organisation | undefined
+  regions: { id: string; nom: string }[]
+}) {
+  const maj =
+    (cle: keyof Brouillon) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      onChange({ ...valeur, [cle]: e.target.value })
+
+  // Les motifs sont ceux de l'equipe qui recoit le lead.
+  const motifs = cible ? MOTIFS[cible] : []
+  const motif = motifs.includes(valeur.motif) ? valeur.motif : (motifs[0] ?? '')
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Champ label="Structure *">
+          <input
+            required
+            value={valeur.structure}
+            onChange={maj('structure')}
+            placeholder="Cabinet dentaire du Port"
+            className={classesSaisie}
+          />
+        </Champ>
+        <Champ label="Praticien ou contact *">
+          <input
+            required
+            value={valeur.contact}
+            onChange={maj('contact')}
+            placeholder="Dr Claire Lambert"
+            className={classesSaisie}
+          />
+        </Champ>
+        <Champ label="Téléphone">
+          <input value={valeur.telephone} onChange={maj('telephone')} placeholder="04 91 00 00 00" className={classesSaisie} />
+        </Champ>
+        <Champ label="Email">
+          <input type="email" value={valeur.email} onChange={maj('email')} placeholder="contact@cabinet.fr" className={classesSaisie} />
+        </Champ>
+        <Champ label="Ville">
+          <input value={valeur.ville} onChange={maj('ville')} placeholder="Marseille" className={classesSaisie} />
+        </Champ>
+        <Champ label="Code postal">
+          <input value={valeur.codePostal} onChange={maj('codePostal')} placeholder="13008" className={classesSaisie} />
+        </Champ>
+        <Champ label="Région">
+          <select value={valeur.regionId} onChange={maj('regionId')} className={classesSaisie}>
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>{r.nom}</option>
+            ))}
+          </select>
+        </Champ>
+        <Champ label="Motif">
+          <select
+            value={motif}
+            onChange={maj('motif')}
+            disabled={!cible}
+            className={classesSaisie}
+          >
+            {motifs.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </Champ>
+      </div>
+
+      <Champ
+        label="Mot d’accompagnement"
+        aide={
+          cible
+            ? `Il ouvre la discussion. C’est ce que l’équipe ${LIBELLE_ORGANISATION[cible]} lira en premier.`
+            : 'Il ouvre la discussion sur le lead.'
+        }
+      >
+        <textarea
+          value={valeur.message}
+          onChange={maj('message')}
+          rows={3}
+          placeholder="Le praticien pose beaucoup d’implants, il est ouvert à être recontacté."
+          className={`${classesSaisie} resize-y`}
+        />
+      </Champ>
+    </div>
   )
 }

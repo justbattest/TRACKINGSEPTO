@@ -23,6 +23,7 @@ import { genererDemo, MEMBRES } from '@/data/seed'
 import {
   COULEURS_MEMBRE,
   dernierMouvement,
+  type Apporteur,
   type Evenement,
   type Lead,
   type Membre,
@@ -33,15 +34,25 @@ import {
 
 const CLE_STOCKAGE = 'echange-septodont:v2'
 
-/** Champs saisis a la creation d'un lead. */
-export type NouveauLead = Omit<Lead, 'id' | 'statut' | 'fil' | 'transmisLe'> & {
+/**
+ * Champs saisis a la creation d'un lead. `origine` n'y figure pas : elle se
+ * deduit de l'equipe de l'apporteur.
+ */
+export type NouveauLead = Omit<Lead, 'id' | 'statut' | 'fil' | 'transmisLe' | 'origine'> & {
   transmisLe?: string
+}
+
+/** Un lead a creer, avec son mot d'accompagnement facultatif. */
+export interface LeadASaisir {
+  lead: NouveauLead
+  message?: string
 }
 
 interface Donnees {
   leads: Lead[]
   regions: Region[]
   membres: Membre[]
+  apporteurs: Apporteur[]
   membreId: string
   /** Date de derniere lecture du fil, par lead : sert a compter les non-lus. */
   lectures: Record<string, string>
@@ -59,7 +70,11 @@ export interface Contexte extends Donnees {
   regionDe: (id: string) => string
   leadDe: (id: string) => Lead | undefined
   membreDe: (id: string) => Membre | undefined
-  ajouterLead: (lead: NouveauLead, message?: string) => void
+  apporteurDe: (id: string) => Apporteur | undefined
+  /** Cree un lot de leads en une fois : une validation, une seule notification. */
+  ajouterLeads: (lots: LeadASaisir[]) => void
+  /** Ajoute un apporteur, ou renvoie celui qui porte deja ce nom dans l'equipe. */
+  ajouterApporteur: (nom: string, organisation: Organisation) => Promise<Apporteur | undefined>
   changerStatut: (id: string, statut: Statut) => void
   envoyerMessage: (id: string, texte: string) => void
   marquerLu: (id: string) => void
@@ -80,11 +95,17 @@ export function useStore(): Contexte {
   return ctx
 }
 
+/** L'equipe d'un apporteur, qui fixe l'origine du lead. Alyxa par defaut. */
+function origineDe(apporteurs: Apporteur[], apporteParId: string): Organisation {
+  return apporteurs.find((a) => a.id === apporteParId)?.organisation ?? 'alyxa'
+}
+
 /** Assemble la partie commune du contexte a partir des donnees chargees. */
 function indexer(donnees: Donnees) {
   const parRegion = new Map(donnees.regions.map((r) => [r.id, r.nom]))
   const parLead = new Map(donnees.leads.map((l) => [l.id, l]))
   const parMembre = new Map(donnees.membres.map((m) => [m.id, m]))
+  const parApporteur = new Map(donnees.apporteurs.map((a) => [a.id, a]))
   const moi = parMembre.get(donnees.membreId)
   return {
     moi,
@@ -92,6 +113,7 @@ function indexer(donnees: Donnees) {
     regionDe: (id: string) => parRegion.get(id) ?? '—',
     leadDe: (id: string) => parLead.get(id),
     membreDe: (id: string) => parMembre.get(id),
+    apporteurDe: (id: string) => parApporteur.get(id),
   }
 }
 
@@ -177,23 +199,45 @@ function FournisseurLocal({ children }: { children: ReactNode }) {
       chargement: false,
       erreur: null,
 
-      ajouterLead: (lead, message) =>
+      ajouterLeads: (lots) =>
         modifier((e) => {
-          const transmisLe = lead.transmisLe ?? new Date().toISOString()
-          const fil: Evenement[] = [
-            { id: `e${Date.now()}-0`, date: transmisLe, type: 'statut', statut: 'transmis', auteurId: e.membreId },
-          ]
-          if (message?.trim()) {
-            fil.push({
-              id: `e${Date.now()}-1`,
-              date: new Date(+new Date(transmisLe) + 1000).toISOString(),
-              type: 'message',
-              texte: message.trim(),
-              auteurId: e.membreId,
-            })
-          }
-          return { ...e, leads: [{ ...lead, transmisLe, id: `l${Date.now()}`, statut: 'transmis', fil }, ...e.leads] }
+          const nouveaux = lots.map(({ lead, message }, i) => {
+            const transmisLe = lead.transmisLe ?? new Date().toISOString()
+            const cle = `${Date.now()}-${i}`
+            const fil: Evenement[] = [
+              { id: `e${cle}-0`, date: transmisLe, type: 'statut', statut: 'transmis', auteurId: e.membreId },
+            ]
+            if (message?.trim()) {
+              fil.push({
+                id: `e${cle}-1`,
+                date: new Date(+new Date(transmisLe) + 1000).toISOString(),
+                type: 'message',
+                texte: message.trim(),
+                auteurId: e.membreId,
+              })
+            }
+            return {
+              ...lead,
+              // Comme en base : l'origine suit l'equipe de l'apporteur.
+              origine: origineDe(e.apporteurs, lead.apporteParId),
+              transmisLe,
+              id: `l${cle}`,
+              statut: 'transmis' as Statut,
+              fil,
+            }
+          })
+          return { ...e, leads: [...nouveaux, ...e.leads] }
         }),
+
+      ajouterApporteur: async (nom, organisation) => {
+        const existant = etat.apporteurs.find(
+          (a) => a.organisation === organisation && a.nom.trim().toLowerCase() === nom.trim().toLowerCase(),
+        )
+        if (existant) return existant
+        const apporteur: Apporteur = { id: `a${Date.now()}`, nom: nom.trim(), organisation }
+        modifier((e) => ({ ...e, apporteurs: [...e.apporteurs, apporteur] }))
+        return apporteur
+      },
 
       changerStatut: (id, statut) =>
         modifier((e) => ({ ...e, leads: ajouterAuFil(e, id, { type: 'statut', statut }, statut) })),
@@ -250,7 +294,7 @@ function FournisseurLocal({ children }: { children: ReactNode }) {
 // Mode partage : base Supabase, avec temps reel.
 // ---------------------------------------------------------------------------
 
-const VIDE: Donnees = { leads: [], regions: [], membres: [], membreId: '', lectures: {} }
+const VIDE: Donnees = { leads: [], regions: [], membres: [], apporteurs: [], membreId: '', lectures: {} }
 
 function FournisseurDistant({ children }: { children: ReactNode }) {
   const [donnees, setDonnees] = useState<Donnees>(VIDE)
@@ -340,8 +384,26 @@ function FournisseurDistant({ children }: { children: ReactNode }) {
       chargement,
       erreur,
 
-      ajouterLead: (lead, message) =>
-        agir(() => api.creerLead({ ...lead, transmisParId: moiId }, message)),
+      ajouterLeads: (lots) =>
+        agir(async () => {
+          await api.creerLeads(
+            lots.map(({ lead, message }) => ({
+              lead: { ...lead, transmisParId: moiId },
+              message,
+            })),
+          )
+        }),
+
+      ajouterApporteur: async (nom, organisation) => {
+        try {
+          const apporteur = await api.creerApporteur(nom, organisation)
+          await rafraichir()
+          return apporteur
+        } catch (e) {
+          setErreur(messageErreur(e))
+          return undefined
+        }
+      },
 
       changerStatut: (id, statut) => agir(() => api.changerStatut(id, moiId, statut)),
 
