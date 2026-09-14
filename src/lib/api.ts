@@ -194,15 +194,25 @@ export async function creerLeads(
   // au bon lead sans cle metier.
   const ids = (data ?? []).map((l) => l.id as string)
 
-  // Le fil de chaque lead s'ouvre sur sa transmission, puis sur le mot
-  // d'accompagnement quand il y en a un.
+  /*
+   * Le fil de chaque lead s'ouvre sur sa transmission, puis sur le mot
+   * d'accompagnement quand il y en a un.
+   *
+   * `statut` et `texte` sont poses explicitement a null : dans une insertion
+   * groupee, PostgREST exige que toutes les lignes portent exactement les
+   * memes cles, sinon il refuse le lot entier (PGRST102).
+   */
   const entrees = ids.flatMap((id, i) => {
     const { lead, message } = leads[i]
-    const debut = [
-      { lead_id: id, auteur_id: lead.transmisParId, type: 'statut', statut: 'transmis' },
-    ]
+    const commun = {
+      lead_id: id,
+      auteur_id: lead.transmisParId,
+      statut: null as Statut | null,
+      texte: null as string | null,
+    }
+    const debut = [{ ...commun, type: 'statut', statut: 'transmis' as Statut }]
     return message?.trim()
-      ? [...debut, { lead_id: id, auteur_id: lead.transmisParId, type: 'message', texte: message.trim() }]
+      ? [...debut, { ...commun, type: 'message', texte: message.trim() }]
       : debut
   })
 
