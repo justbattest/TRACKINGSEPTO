@@ -145,6 +145,31 @@ export function similarite(a: string, b: string): number {
   return (2 * communs) / (ta.size + tb.size)
 }
 
+/**
+ * Mots qui ne distinguent rien : presque tous les cabinets s'appellent
+ * « Cabinet dentaire … », presque tous les praticiens « Dr … ». Les garder
+ * rapproche Nîmes de Perpignan plus surement qu'une vraie faute de frappe.
+ */
+const MOTS_BANALS = new Set([
+  'cabinet', 'cabinets', 'dentaire', 'dentaires', 'dentiste', 'dentistes',
+  'centre', 'clinique', 'polyclinique', 'selarl', 'scm', 'sc',
+  'dr', 'docteur', 'drs', 'mr', 'mme', 'm',
+  'de', 'du', 'des', 'la', 'le', 'les', 'l', 'd', 'et', 'a', 'au', 'aux',
+])
+
+/**
+ * Ce qui reste d'un libelle une fois les mots banals retires : « Cabinet
+ * dentaire de la Bornière » devient « borniere ». Si tout est banal, on garde
+ * le libelle entier plutot que de comparer du vide.
+ */
+export function noyau(v: string): string {
+  const mots = pliage(v).split(' ').filter((m) => m && !MOTS_BANALS.has(m))
+  return mots.length ? mots.join(' ') : pliage(v)
+}
+
+/** Proximite de deux libelles, une fois ecarte ce qui ne distingue rien. */
+export const similariteNoms = (a: string, b: string): number => similarite(noyau(a), noyau(b))
+
 export interface Doublon {
   lead: Lead
   /** Pourquoi on le signale, en clair. */
@@ -153,9 +178,16 @@ export interface Doublon {
   certain: boolean
 }
 
-/** Au-dela, deux libelles designent la meme chose a une faute pres. */
-const PROCHE = 0.62
-const TRES_PROCHE = 0.82
+/*
+ * Seuils cales sur les libelles reduits a ce qui les distingue. Le parti pris
+ * est de se taire dans le doute : une alerte de trop apprend a cliquer sans
+ * lire, et on perd les vraies. Deux confreres qui partagent un prenom —
+ * « Nathalie Robin » et « Nathalie Renard » — plafonnent a 0,65, la ou une
+ * vraie faute de frappe sur un nom complet part de 0,81.
+ */
+const TRES_PROCHE = 0.72
+/** Cabinet different : il faut une quasi-identite du praticien pour parler. */
+const QUASI_IDENTIQUE = 0.8
 
 /**
  * Les fiches deja presentes qui ressemblent au candidat, de la plus probable
@@ -184,17 +216,20 @@ export function chercherDoublons(
       continue
     }
 
-    const surStructure = similarite(candidat.structure, lead.structure)
-    const surContact = similarite(candidat.contact, lead.contact)
+    const surStructure = similariteNoms(candidat.structure, lead.structure)
+    const surContact = similariteNoms(candidat.contact, lead.contact)
 
+    /*
+     * On ne signale JAMAIS sur la seule structure. Alyxa vend par poste : un
+     * meme cabinet qui revient avec un autre praticien est un lead legitime,
+     * pas un doublon — c'est meme ce qu'on cherche. Il faut que le praticien
+     * aussi corresponde.
+     */
     if (surStructure >= TRES_PROCHE && surContact >= TRES_PROCHE) {
       trouves.push({ lead, raison: 'Même structure et même praticien', certain: false, score: 2 })
-    } else if (surContact >= TRES_PROCHE) {
-      trouves.push({ lead, raison: 'Même praticien', certain: false, score: 1.5 })
-    } else if (surStructure >= PROCHE && surContact >= PROCHE) {
-      trouves.push({ lead, raison: 'Structure et praticien très proches', certain: false, score: 1 })
-    } else if (surStructure >= TRES_PROCHE) {
-      trouves.push({ lead, raison: 'Même structure', certain: false, score: 0.8 })
+    } else if (surContact >= QUASI_IDENTIQUE) {
+      // Structure differente : seul un nom de praticien quasi identique parle.
+      trouves.push({ lead, raison: 'Même praticien, autre structure', certain: false, score: 1 })
     }
   }
 

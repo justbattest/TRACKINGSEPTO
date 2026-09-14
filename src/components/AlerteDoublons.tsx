@@ -6,24 +6,34 @@ import type { Doublon } from '@/lib/fiche'
 import { LIBELLE_ORGANISATION } from '@/lib/types'
 
 /**
- * Signale qu'une fiche tres proche existe deja — et montre laquelle.
+ * Les fiches proches trouvees pour un lead. `libelle` nomme le lead concerne
+ * quand on en saisit plusieurs d'un coup.
+ */
+export interface GroupeDoublons {
+  libelle?: string
+  doublons: Doublon[]
+}
+
+/**
+ * Signale qu'une fiche tres proche existe deja — et montre laquelle, en
+ * entier.
  *
  * Elle n'interdit rien : un cabinet peut tres bien revenir avec un second
- * praticien, c'est meme le modele d'Alyxa. On informe, la personne tranche.
+ * praticien, c'est meme le modele par poste d'Alyxa. On informe, la personne
+ * tranche.
  */
 export default function AlerteDoublons({
-  doublons,
+  groupes,
   onVoirFiche,
   onCreerQuandMeme,
   onAnnuler,
 }: {
-  doublons: Doublon[]
+  groupes: GroupeDoublons[]
   onVoirFiche: (leadId: string) => void
   onCreerQuandMeme: () => void
   onAnnuler: () => void
 }) {
-  const { membreDe, regionDe } = useStore()
-  const plusieurs = doublons.length > 1
+  const plusieurs = groupes.length > 1
 
   return (
     <Modale
@@ -33,52 +43,20 @@ export default function AlerteDoublons({
           {plusieurs ? 'Ces leads existent peut-être déjà' : 'Ce lead existe peut-être déjà'}
         </span>
       }
-      sous={`Vérifiez avant de créer. Si ce n’est pas le même praticien, continuez.`}
+      sous="Vérifiez avant de créer. Si ce n’est pas le même praticien, continuez."
       onFermer={onAnnuler}
     >
       <div className="space-y-3 px-6 py-5">
-        {doublons.map(({ lead, raison, certain }) => {
-          const apporteur = membreDe(lead.apporteParId)
-          return (
-            <div key={lead.id} className="rounded-lg border border-bord bg-fond px-4 py-3.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
-                    certain
-                      ? 'bg-[var(--color-critique-fond)] text-[var(--color-critique-fonce)]'
-                      : 'bg-[var(--color-attention-fond)] text-[var(--color-attention-fonce)]'
-                  }`}
-                >
-                  {raison}
-                </span>
-                <EtiquetteStatut statut={lead.statut} />
-              </div>
-
-              <div className="mt-2.5 text-[14px] font-semibold">{lead.structure}</div>
-              <div className="text-[13px] text-encre-2">{lead.contact}</div>
-              <div className="mt-0.5 text-[12.5px] text-encre-3">
-                {[lead.ville, lead.codePostal].filter(Boolean).join(' ') || regionDe(lead.regionId)}
-                {lead.telephone && ` · ${lead.telephone}`}
-              </div>
-
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-bord pt-2.5 text-[12.5px] text-encre-3">
-                <span className="flex items-center gap-1.5">
-                  <Avatar membre={apporteur} taille={20} />
-                  Apporté par {apporteur?.nom ?? '—'}
-                  {apporteur && ` (${LIBELLE_ORGANISATION[apporteur.organisation]})`} le{' '}
-                  {formatDate(lead.transmisLe)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onVoirFiche(lead.id)}
-                  className="font-medium text-[var(--color-marque)] hover:underline"
-                >
-                  Voir la fiche
-                </button>
-              </div>
-            </div>
-          )
-        })}
+        {groupes.map((groupe, i) => (
+          <div key={groupe.libelle ?? i} className="space-y-3">
+            {groupe.libelle && (
+              <div className="pt-1 text-[12.5px] font-semibold text-encre-2">{groupe.libelle}</div>
+            )}
+            {groupe.doublons.map((d) => (
+              <FicheProche key={d.lead.id} doublon={d} onVoirFiche={onVoirFiche} />
+            ))}
+          </div>
+        ))}
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
           <Bouton type="button" onClick={onAnnuler}>
@@ -90,5 +68,57 @@ export default function AlerteDoublons({
         </div>
       </div>
     </Modale>
+  )
+}
+
+/** La fiche existante, montree assez completement pour trancher sans l'ouvrir. */
+function FicheProche({
+  doublon: { lead, raison, certain },
+  onVoirFiche,
+}: {
+  doublon: Doublon
+  onVoirFiche: (leadId: string) => void
+}) {
+  const { membreDe, regionDe } = useStore()
+  const apporteur = membreDe(lead.apporteParId)
+
+  return (
+    <div className="rounded-lg border border-bord bg-fond px-4 py-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
+            certain
+              ? 'bg-[var(--color-critique-fond)] text-[var(--color-critique-fonce)]'
+              : 'bg-[var(--color-attention-fond)] text-[var(--color-attention-fonce)]'
+          }`}
+        >
+          {raison}
+        </span>
+        <EtiquetteStatut statut={lead.statut} />
+      </div>
+
+      <div className="mt-2.5 text-[14px] font-semibold">{lead.structure}</div>
+      <div className="text-[13px] text-encre-2">{lead.contact}</div>
+      <div className="mt-0.5 text-[12.5px] text-encre-3">
+        {[lead.ville, lead.codePostal].filter(Boolean).join(' ') || regionDe(lead.regionId)}
+        {lead.telephone && ` · ${lead.telephone}`}
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-bord pt-2.5 text-[12.5px] text-encre-3">
+        <span className="flex items-center gap-1.5">
+          <Avatar membre={apporteur} taille={20} />
+          Apporté par {apporteur?.nom ?? '—'}
+          {apporteur && ` (${LIBELLE_ORGANISATION[apporteur.organisation]})`} le{' '}
+          {formatDate(lead.transmisLe)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onVoirFiche(lead.id)}
+          className="font-medium text-[var(--color-marque)] hover:underline"
+        >
+          Voir la fiche
+        </button>
+      </div>
+    </div>
   )
 }

@@ -4,8 +4,10 @@ import {
   chiffres,
   differences,
   normaliser,
+  noyau,
   resumerDifferences,
   similarite,
+  similariteNoms,
   texteNet,
   type ChampsFiche,
 } from './fiche'
@@ -114,6 +116,32 @@ describe('similarite', () => {
   })
 })
 
+describe('ce qui distingue vraiment deux libelles', () => {
+  it('ecarte les mots que portent tous les cabinets', () => {
+    expect(noyau('Cabinet dentaire de la Bornière')).toBe('borniere')
+    expect(noyau('Dr Nathalie Renard')).toBe('nathalie renard')
+    expect(noyau('Centre dentaire du Mourillon')).toBe('mourillon')
+  })
+
+  it('garde le libelle entier quand il n’est fait que de mots banals', () => {
+    expect(noyau('Cabinet dentaire')).toBe('cabinet dentaire')
+  })
+
+  it('separe deux villes que le prefixe commun rapprochait a tort', () => {
+    // Sur les libelles bruts, « Cabinet dentaire » pese si lourd que Nîmes et
+    // Perpignan depassaient le seuil. C'etait le faux positif a corriger.
+    expect(similarite('Cabinet dentaire Nîmes', 'Cabinet dentaire Perpignan')).toBeGreaterThan(0.6)
+    expect(similariteNoms('Cabinet dentaire Nîmes', 'Cabinet dentaire Perpignan')).toBeLessThan(0.2)
+    expect(similariteNoms('Cabinet dentaire Nîmes', 'Cabinet dentaire Nancy')).toBeLessThan(0.4)
+  })
+
+  it('rapproche toujours ce qui doit l’etre', () => {
+    expect(similariteNoms('Cabinet dentaire de la Bornière', 'Cabinet dentaire de la Borniere')).toBe(1)
+    expect(similariteNoms('Cabinet du Vieux-Port', 'Cabinet du Vieux Port')).toBe(1)
+    expect(similariteNoms('Dr Gassot', 'Dr Grassot')).toBeGreaterThan(0.6)
+  })
+})
+
 describe('numeros de telephone', () => {
   it('ramene les ecritures francaises a la meme forme', () => {
     expect(chiffres('06 12 34 56 78')).toBe('612345678')
@@ -143,18 +171,28 @@ describe('recherche de doublons', () => {
   })
 
   it('rattrape la faute de frappe sur le praticien', () => {
-    const base = [lead('l1', { contact: 'Dr Gassot', telephone: '', email: '' })]
+    const base = [lead('l1', { contact: 'Dr Gassot Cyril', telephone: '', email: '' })]
     const [d] = chercherDoublons(base, {
       ...CHAMPS,
-      contact: 'Dr Grassot',
+      contact: 'Dr Grassot Cyril',
       telephone: '',
       email: '',
     })
     expect(d?.lead.id).toBe('l1')
+    expect(d.raison).toBe('Même structure et même praticien')
     expect(d.certain).toBe(false)
   })
 
-  it('laisse passer deux praticiens differents du meme cabinet', () => {
+  it('se tait sur deux confreres du meme cabinet qui partagent un prenom', () => {
+    // « Nathalie Robin » et « Nathalie Renard » sont deux personnes. Preferer
+    // le silence au doute : une alerte de trop apprend a cliquer sans lire.
+    const base = [lead('l1', { contact: 'Dr Nathalie Robin', telephone: '', email: '' })]
+    expect(
+      chercherDoublons(base, { ...CHAMPS, contact: 'Dr Nathalie Renard', telephone: '', email: '' }),
+    ).toEqual([])
+  })
+
+  it('ne dit rien de deux praticiens differents du meme cabinet', () => {
     const base = [lead('l1', { contact: 'Dr Mechali', telephone: '', email: '' })]
     const trouves = chercherDoublons(base, {
       structure: 'Cabinet dentaire de la Bornière',
@@ -162,10 +200,9 @@ describe('recherche de doublons', () => {
       telephone: '',
       email: '',
     })
-    // Meme structure : on signale, mais jamais comme une certitude — un cabinet
-    // peut prendre plusieurs licences, c'est le modele meme d'Alyxa.
-    expect(trouves[0]?.certain).toBe(false)
-    expect(trouves[0]?.raison).toBe('Même structure')
+    // Alyxa vend par poste : un meme cabinet qui revient avec un autre
+    // praticien est un lead legitime. Alerter la-dessus noierait les vrais cas.
+    expect(trouves).toEqual([])
   })
 
   it('ignore la fiche qu’on est en train de corriger', () => {
@@ -185,6 +222,52 @@ describe('recherche de doublons', () => {
     expect(trouves).toHaveLength(3)
     expect(trouves[0].lead.id).toBe('d')
     expect(trouves[0].certain).toBe(true)
+  })
+
+  it('ne confond pas deux praticiens d’un meme cabinet au nom voisin', () => {
+    const base = [lead('l1', { contact: 'Dr Isabelle Vidal', telephone: '', email: '' })]
+    expect(
+      chercherDoublons(base, { ...CHAMPS, contact: 'Dr Claire Vidal', telephone: '', email: '' }),
+    ).toEqual([])
+  })
+
+  it('signale le meme praticien retrouve sous une autre structure', () => {
+    const base = [
+      lead('l1', { structure: 'Centre dentaire du Mourillon', contact: 'Dr Mechali', telephone: '', email: '' }),
+    ]
+    const [d] = chercherDoublons(base, { ...CHAMPS, telephone: '', email: '' })
+    expect(d?.raison).toBe('Même praticien, autre structure')
+  })
+
+  it('ne rapproche pas deux confreres qui partagent un prenom', () => {
+    const base = [
+      lead('l1', { structure: 'Clinique Saint-Roch', contact: 'Dr Nathalie Roche', telephone: '', email: '' }),
+    ]
+    const trouves = chercherDoublons(base, {
+      structure: 'Cabinet des Halles',
+      contact: 'Dr Nathalie Robin',
+      telephone: '',
+      email: '',
+    })
+    expect(trouves).toEqual([])
+  })
+
+  it('ne rapproche pas deux cabinets de villes differentes', () => {
+    const base = [
+      lead('l1', {
+        structure: 'Cabinet dentaire Perpignan',
+        contact: 'Dr Nathalie Robin',
+        telephone: '',
+        email: '',
+      }),
+    ]
+    const trouves = chercherDoublons(base, {
+      structure: 'Cabinet dentaire Nîmes',
+      contact: 'Dr Nathalie Renard',
+      telephone: '',
+      email: '',
+    })
+    expect(trouves).toEqual([])
   })
 
   it('ne confond pas deux cabinets sans rapport', () => {

@@ -189,6 +189,9 @@ export async function creerLeads(
     .select('id')
   if (error) throw error
 
+  // Un INSERT multi-lignes renvoie ses lignes dans l'ordre des valeurs
+  // fournies : c'est ce qui permet de rattacher chaque mot d'accompagnement
+  // au bon lead sans cle metier.
   const ids = (data ?? []).map((l) => l.id as string)
 
   // Le fil de chaque lead s'ouvre sur sa transmission, puis sur le mot
