@@ -255,6 +255,33 @@ export async function modifierLead(
   if (erreurFil) throw erreurFil
 }
 
+/**
+ * Previent l'equipe destinataire des leads qui viennent d'etre crees.
+ *
+ * Un appel = un email, quel que soit le nombre de leads : c'est ce qui donne
+ * le groupement voulu. Ne leve jamais — un email qui ne part pas ne doit pas
+ * faire croire que les leads n'ont pas ete enregistres. Renvoie la raison de
+ * l'echec, ou null quand tout est parti.
+ */
+export async function notifierLeads(leadIds: string[]): Promise<string | null> {
+  if (leadIds.length === 0) return null
+  try {
+    const { data, error } = await client().functions.invoke('notifier-leads', {
+      body: { leadIds },
+    })
+    if (error) return messageLisible(error)
+    const echec = (data as { erreur?: string } | null)?.erreur
+    return echec ?? null
+  } catch (e) {
+    return messageLisible(e)
+  }
+}
+
+const messageLisible = (e: unknown): string =>
+  e && typeof e === 'object' && 'message' in e
+    ? String((e as { message: unknown }).message)
+    : 'raison inconnue'
+
 export async function changerStatut(leadId: string, auteurId: string, statut: Statut): Promise<void> {
   const { error } = await client()
     .from('evenements')

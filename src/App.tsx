@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { AlertCircle, BarChart3, BookOpen, Loader2, LogOut, Repeat2, Users } from 'lucide-react'
 import Tableau from '@/pages/Tableau'
 import Leads from '@/pages/Leads'
@@ -141,6 +141,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Tableau onOuvrirLead={setLeadOuvert} />} />
           <Route path="/leads" element={<Leads onOuvrirLead={setLeadOuvert} />} />
+          <Route path="/leads/:id" element={<LeadDirect onOuvrir={setLeadOuvert} />} />
           <Route path="/guide" element={<Guide />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -150,4 +151,16 @@ export default function App() {
       {changerCompte && !enLigne && <Identite onFermer={() => setChangerCompte(false)} />}
     </div>
   )
+}
+
+/**
+ * La liste, avec une fiche ouverte d'emblee. C'est l'adresse que portent les
+ * emails de notification : un clic depuis sa boite mène droit au lead.
+ */
+function LeadDirect({ onOuvrir }: { onOuvrir: (id: string) => void }) {
+  const { id } = useParams<{ id: string }>()
+  useEffect(() => {
+    if (id) onOuvrir(id)
+  }, [id, onOuvrir])
+  return <Leads onOuvrirLead={onOuvrir} />
 }

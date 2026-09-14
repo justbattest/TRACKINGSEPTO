@@ -254,6 +254,73 @@ end;
 $$;
 
 -- ----------------------------------------------------------------------------
+-- Notifications
+--
+-- Qui est prevenu quand un lead arrive, par equipe destinataire. Asymetrique a
+-- dessein : Septodont veut ses commerciaux nommement, Alyxa a une boite
+-- commune que tout le monde lit.
+-- ----------------------------------------------------------------------------
+
+create table if not exists notifications_equipe (
+  organisation    organisation primary key,
+  -- Prendre les adresses des comptes de l'equipe, telles qu'ils se sont inscrits.
+  inclure_membres boolean not null default false,
+  -- Adresses en supplement, pour les gens sans compte ou les boites communes.
+  adresses        text[] not null default '{}'
+);
+
+alter table notifications_equipe enable row level security;
+
+insert into notifications_equipe (organisation, inclure_membres, adresses) values
+  ('septodont', true,  '{}'),
+  ('alyxa',     false, '{getalyxa@gmail.com}')
+on conflict (organisation) do nothing;
+
+comment on table notifications_equipe is
+  'Destinataires des notifications de leads. Aucune regle de lecture : deliberement invisible via l''API, seule la fonction d''envoi la lit.';
+
+/*
+ * Les adresses a prevenir pour une equipe, dedoublonnees.
+ *
+ * Passe par auth.users : personne n'a a ressaisir une adresse deja donnee a
+ * l'inscription, et un depart se repercute en desactivant le compte.
+ */
+create or replace function destinataires_notification(equipe organisation)
+returns text[]
+language plpgsql security definer set search_path = public, auth as $$
+declare
+  v_conf  notifications_equipe;
+  v_liste text[];
+begin
+  select * into v_conf from notifications_equipe where organisation = equipe;
+  if not found then return '{}'; end if;
+
+  v_liste := v_conf.adresses;
+
+  if v_conf.inclure_membres then
+    select v_liste || coalesce(array_agg(u.email::text), '{}')
+      into v_liste
+      from membres m
+      join auth.users u on u.id = m.utilisateur_id
+     where m.organisation = equipe and m.actif and u.email is not null;
+  end if;
+
+  select array_agg(distinct lower(btrim(a)))
+    into v_liste
+    from unnest(v_liste) as a
+   where btrim(a) <> '';
+
+  return coalesce(v_liste, '{}');
+end;
+$$;
+
+-- Reservee a la fonction d'envoi : personne ne doit pouvoir lister les
+-- adresses de l'autre equipe depuis le navigateur.
+revoke execute on function public.destinataires_notification(organisation)
+  from public, anon, authenticated;
+grant execute on function public.destinataires_notification(organisation) to service_role;
+
+-- ----------------------------------------------------------------------------
 -- Securite
 --
 -- L'echange est un espace partage entre les deux maisons : tout membre voit

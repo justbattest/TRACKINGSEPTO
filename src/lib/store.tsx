@@ -442,15 +442,34 @@ function FournisseurDistant({ children }: { children: ReactNode }) {
       chargement,
       erreur,
 
-      ajouterLeads: (lots) =>
-        agir(async () => {
-          await api.creerLeads(
-            lots.map(({ lead, message }) => ({
-              lead: { ...lead, transmisParId: moiId },
-              message,
-            })),
-          )
-        }),
+      /*
+       * Creation puis notification, dans cet ordre et sans les confondre : un
+       * email qui ne part pas ne doit jamais faire croire que les leads ne
+       * sont pas enregistres. On rafraichit d'abord, on previent ensuite, et
+       * seul l'echec de l'envoi remonte comme avertissement.
+       */
+      ajouterLeads: (lots) => {
+        void (async () => {
+          try {
+            const ids = await api.creerLeads(
+              lots.map(({ lead, message }) => ({
+                lead: { ...lead, transmisParId: moiId },
+                message,
+              })),
+            )
+            await rafraichir()
+            const echec = await api.notifierLeads(ids)
+            if (echec) {
+              setErreur(
+                `${ids.length > 1 ? `Les ${ids.length} leads sont enregistrés` : 'Le lead est enregistré'}, ` +
+                  `mais la notification par email n’est pas partie (${echec}).`,
+              )
+            }
+          } catch (e) {
+            setErreur(messageErreur(e))
+          }
+        })()
+      },
 
       modifierLead: (id, champs) => {
         const lead = index.leadDe(id)
