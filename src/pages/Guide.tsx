@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   MessageSquare,
   Repeat2,
+  UserRound,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import Entete from '@/components/Entete'
@@ -67,7 +68,46 @@ export default function Guide() {
         </section>
 
         <section>
-          <TitreSection numero={2} titre="Les 5 statuts" />
+          <TitreSection numero={2} titre="Qui a apporté le lead" />
+          <Carte>
+            <div className="px-6 py-5">
+              <div className="mb-4 flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-marque-clair)] text-[var(--color-marque)]">
+                  <UserRound size={18} />
+                </span>
+                <p className="text-[13.5px] leading-relaxed text-encre-2">
+                  Au moment d’ajouter un lead, le premier champ demande{' '}
+                  <strong>qui l’a apporté</strong>. C’est cette personne qui compte, pas celle qui
+                  tape. Si quelqu’un de {nous} saisit un lead amené par {eux}, il choisit la personne
+                  de {eux} : le lead est compté pour {eux}, et c’est {nous} qui le suit.
+                </p>
+              </div>
+              <ul className="space-y-2.5 text-[13.5px] leading-relaxed text-encre-2">
+                <Point>
+                  Le sens du lead — envoyé ou reçu — en découle tout seul. Il n’y a rien d’autre à
+                  cocher. Qui l’a saisi reste noté en second plan : c’est la trace, pas la propriété.
+                </Point>
+                <Point>
+                  <strong>Tout le monde peut corriger n’importe quelle fiche.</strong> Ouvrez le
+                  lead, cliquez sur Modifier la fiche, et changez ce qu’il faut — y compris
+                  l’apporteur, ce qui rebascule le lead d’une équipe à l’autre.
+                </Point>
+                <Point>
+                  Chaque correction s’inscrit dans la discussion du lead : qui a changé quoi, et
+                  quand. Rien ne disparaît en silence.
+                </Point>
+                <Point>
+                  Si un lead ressemble à un lead déjà présent, l’outil montre la fiche existante
+                  avant de créer. À vous de trancher : un même cabinet peut très bien revenir avec
+                  un autre praticien.
+                </Point>
+              </ul>
+            </div>
+          </Carte>
+        </section>
+
+        <section>
+          <TitreSection numero={3} titre="Les 5 statuts" />
           <Carte>
             <div className="divide-y divide-bord">
               {(
@@ -95,7 +135,7 @@ export default function Guide() {
         </section>
 
         <section>
-          <TitreSection numero={3} titre="La discussion sur chaque lead" />
+          <TitreSection numero={4} titre="La discussion sur chaque lead" />
           <Carte>
             <div className="px-6 py-5">
               <div className="mb-4 flex items-start gap-3">
@@ -128,7 +168,7 @@ export default function Guide() {
         </section>
 
         <section>
-          <TitreSection numero={4} titre="Les trois écrans" />
+          <TitreSection numero={5} titre="Les trois écrans" />
           <Carte>
             <div className="divide-y divide-bord">
               <Page
@@ -151,7 +191,7 @@ export default function Guide() {
         </section>
 
         <section>
-          <TitreSection numero={5} titre="La routine" />
+          <TitreSection numero={6} titre="La routine" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Routine
               rythme="En arrivant"

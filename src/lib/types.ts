@@ -141,18 +141,21 @@ export const initiales = (nom: string): string =>
     .join('')
 
 /**
- * Une entree du fil d'un lead : un message de la discussion, ou un changement
- * de statut. Les deux vivent dans le meme fil chronologique — c'est ce qui
- * permet de relire l'histoire complete du lead en un seul coup d'oeil.
+ * Une entree du fil d'un lead : un message de la discussion, un changement de
+ * statut, ou une correction de la fiche. Les trois vivent dans le meme fil
+ * chronologique — c'est ce qui permet de relire l'histoire complete du lead en
+ * un seul coup d'oeil, et de savoir qui a corrige quoi.
  */
+export type TypeEvenement = 'statut' | 'message' | 'modification'
+
 export interface Evenement {
   id: string
   date: string
   auteurId: string
-  type: 'statut' | 'message'
+  type: TypeEvenement
   /** Renseigne pour un changement de statut. */
   statut?: Statut
-  /** Renseigne pour un message. */
+  /** Renseigne pour un message ou le resume d'une correction. */
   texte?: string
 }
 
@@ -189,7 +192,7 @@ export interface Lead {
 export const dernierMouvement = (lead: Lead): string =>
   lead.fil.length ? lead.fil[lead.fil.length - 1].date : lead.transmisLe
 
-/** Messages seuls, sans les changements de statut. */
+/** Messages seuls, sans les changements de statut ni les corrections. */
 export const messages = (lead: Lead): Evenement[] => lead.fil.filter((e) => e.type === 'message')
 
 /** Messages postes apres la date de lecture, hors messages de la personne elle-meme. */

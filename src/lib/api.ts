@@ -5,6 +5,7 @@
  * camelCase : la traduction se fait dans ce fichier et nulle part ailleurs.
  */
 import { client } from './supabase'
+import { normaliser, type ChampsFiche } from './fiche'
 import type {
   Evenement,
   Lead,
@@ -12,6 +13,7 @@ import type {
   Organisation,
   Region,
   Statut,
+  TypeEvenement,
 } from './types'
 
 interface LigneMembre {
@@ -42,7 +44,7 @@ interface LigneEvenement {
   id: string
   lead_id: string
   auteur_id: string
-  type: 'statut' | 'message'
+  type: TypeEvenement
   statut: Statut | null
   texte: string | null
   survenu_le: string
@@ -153,19 +155,13 @@ export async function charger(membreId: string): Promise<Instantane> {
   }
 }
 
-export interface NouveauLeadDistant {
-  /** Membre apporteur : son equipe fixe l'origine du lead, cote base. */
-  apporteParId: string
-  structure: string
-  contact: string
-  telephone: string
-  email: string
-  ville: string
-  codePostal: string
-  regionId: string
-  motif: string
-  transmisParId: string
-}
+/**
+ * Un lead a creer : les champs de la fiche, plus qui le saisit.
+ *
+ * `apporteParId` porte l'apporteur, dont l'equipe fixe l'origine cote base ;
+ * `transmisParId` n'est que la tracabilite de la saisie.
+ */
+export type NouveauLeadDistant = ChampsFiche & { transmisParId: string }
 
 /**
  * Cree un ou plusieurs leads d'un coup, chacun avec son entree « transmis » et
@@ -181,18 +177,14 @@ export async function creerLeads(
   const { data, error } = await db
     .from('leads')
     .insert(
-      leads.map(({ lead }) => ({
-        apporte_par: lead.apporteParId,
-        transmis_par: lead.transmisParId,
-        structure: lead.structure,
-        contact: lead.contact,
-        telephone: lead.telephone || null,
-        email: lead.email || null,
-        ville: lead.ville || null,
-        code_postal: lead.codePostal || null,
-        region_id: lead.regionId || null,
-        motif: lead.motif,
-      })),
+      leads.map(({ lead }) => {
+        const net = normaliser(lead)
+        return {
+          apporte_par: net.apporteParId,
+          transmis_par: lead.transmisParId,
+          ...champsEnBase(net),
+        }
+      }),
     )
     .select('id')
   if (error) throw error
@@ -215,6 +207,49 @@ export async function creerLeads(
   if (erreurFil) throw erreurFil
 
   return ids
+}
+
+/** Les colonnes de la fiche, telles que la base les attend. */
+function champsEnBase(net: ChampsFiche) {
+  return {
+    structure: net.structure,
+    contact: net.contact,
+    telephone: net.telephone || null,
+    email: net.email || null,
+    ville: net.ville || null,
+    code_postal: net.codePostal || null,
+    region_id: net.regionId || null,
+    motif: net.motif,
+  }
+}
+
+/**
+ * Corrige une fiche et inscrit au fil ce qui a change.
+ *
+ * Tout membre peut corriger n'importe quelle fiche : c'est un outil interne,
+ * et c'est precisement ce qui manquait a l'equipe Septodont. La tracabilite de
+ * la saisie, elle, est figee cote base — un declencheur la restitue.
+ */
+export async function modifierLead(
+  leadId: string,
+  champs: ChampsFiche,
+  auteurId: string,
+  resume: string,
+): Promise<void> {
+  const db = client()
+  const net = normaliser(champs)
+  const { error } = await db
+    .from('leads')
+    .update({ apporte_par: net.apporteParId, ...champsEnBase(net) })
+    .eq('id', leadId)
+  if (error) throw error
+
+  // Sans changement visible, on n'encombre pas le fil.
+  if (!resume.trim()) return
+  const { error: erreurFil } = await db
+    .from('evenements')
+    .insert({ lead_id: leadId, auteur_id: auteurId, type: 'modification', texte: resume.trim() })
+  if (erreurFil) throw erreurFil
 }
 
 export async function changerStatut(leadId: string, auteurId: string, statut: Statut): Promise<void> {

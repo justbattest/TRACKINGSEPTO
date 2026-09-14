@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Mail, MapPin, Phone, Send, Trash2, User } from 'lucide-react'
-import { Avatar, Bouton, EtiquetteSens, Modale } from '@/components/ui'
-import { useStore } from '@/lib/store'
+import { Mail, MapPin, Pencil, Phone, Send, Trash2, User } from 'lucide-react'
+import ChoixApporteur from '@/components/ChoixApporteur'
+import { Avatar, Bouton, Champ, classesSaisie, EtiquetteSens, Modale } from '@/components/ui'
+import { champsDe, useStore } from '@/lib/store'
 import { formatDate } from '@/lib/dates'
+import { differences, type ChampsFiche } from '@/lib/fiche'
 import { joursDepuis } from '@/lib/stats'
 import {
   AUTRE,
   destinataire,
   LIBELLE_ORGANISATION,
   LIBELLE_STATUT,
+  MOTIFS,
   sensPour,
   STATUTS,
   type Evenement,
+  type Lead,
   type Statut,
 } from '@/lib/types'
 
@@ -21,6 +25,7 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
     useStore()
   const lead = leadDe(leadId)
   const [brouillon, setBrouillon] = useState('')
+  const [edition, setEdition] = useState(false)
   const [confirmerSuppression, setConfirmerSuppression] = useState(false)
   const finDuFil = useRef<HTMLDivElement>(null)
 
@@ -80,81 +85,92 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
       <div className="grid grid-cols-1 gap-y-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
         {/* Colonne gauche : tout ce qui identifie et qualifie le lead. */}
         <aside className="space-y-4 border-b border-bord px-6 py-5 lg:border-r lg:border-b-0">
-          <dl className="space-y-2.5 text-[13.5px]">
-            <Info icone={<User size={14} />}>{lead.contact}</Info>
-            <Info icone={<MapPin size={14} />}>
-              {[lead.ville, lead.codePostal].filter(Boolean).join(' ') || '—'}
-              <span className="block text-[12px] text-encre-3">{regionDe(lead.regionId)}</span>
-            </Info>
-            <Info icone={<Phone size={14} />}>
-              {lead.telephone ? (
-                <a href={`tel:${lead.telephone.replace(/\s/g, '')}`} className="hover:underline">
-                  {lead.telephone}
-                </a>
-              ) : (
-                '—'
-              )}
-            </Info>
-            <Info icone={<Mail size={14} />}>
-              {lead.email ? (
-                <a href={`mailto:${lead.email}`} className="break-all hover:underline">
-                  {lead.email}
-                </a>
-              ) : (
-                '—'
-              )}
-            </Info>
-          </dl>
-
-          <div className="rounded-lg bg-fond px-3.5 py-3">
-            <div className="text-[11.5px] font-medium tracking-wide text-encre-3 uppercase">Motif</div>
-            <div className="mt-1 text-[13.5px] font-medium">{lead.motif}</div>
-          </div>
-
-          <div>
-            <div className="mb-2 text-[11.5px] font-medium tracking-wide text-encre-3 uppercase">
-              Statut
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {STATUTS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => changerStatut(leadId, s)}
-                  aria-pressed={lead.statut === s}
-                  className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors ${
-                    lead.statut === s
-                      ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
-                      : 'border-bord-fort text-encre-2 hover:bg-fond'
-                  }`}
-                >
-                  {LIBELLE_STATUT[s]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {confirmerSuppression ? (
-            <div className="rounded-lg border border-[var(--color-critique)] px-3.5 py-3">
-              <p className="text-[12.5px] text-encre-2">
-                Supprimer ce lead et toute sa discussion ? C’est définitif.
-              </p>
-              <div className="mt-2.5 flex gap-2">
-                <Bouton
-                  variante="danger"
-                  onClick={() => {
-                    supprimerLead(leadId)
-                    onFermer()
-                  }}
-                >
-                  Supprimer
-                </Bouton>
-                <Bouton onClick={() => setConfirmerSuppression(false)}>Annuler</Bouton>
-              </div>
-            </div>
+          {edition ? (
+            <PanneauEdition lead={lead} onFini={() => setEdition(false)} />
           ) : (
-            <Bouton variante="danger" onClick={() => setConfirmerSuppression(true)}>
-              <Trash2 size={14} /> Supprimer le lead
-            </Bouton>
+            <>
+              <dl className="space-y-2.5 text-[13.5px]">
+                <Info icone={<User size={14} />}>{lead.contact}</Info>
+                <Info icone={<MapPin size={14} />}>
+                  {[lead.ville, lead.codePostal].filter(Boolean).join(' ') || '—'}
+                  <span className="block text-[12px] text-encre-3">{regionDe(lead.regionId)}</span>
+                </Info>
+                <Info icone={<Phone size={14} />}>
+                  {lead.telephone ? (
+                    <a href={`tel:${lead.telephone.replace(/\s/g, '')}`} className="hover:underline">
+                      {lead.telephone}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </Info>
+                <Info icone={<Mail size={14} />}>
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} className="break-all hover:underline">
+                      {lead.email}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </Info>
+              </dl>
+
+              <div className="rounded-lg bg-fond px-3.5 py-3">
+                <div className="text-[11.5px] font-medium tracking-wide text-encre-3 uppercase">Motif</div>
+                <div className="mt-1 text-[13.5px] font-medium">{lead.motif}</div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-[11.5px] font-medium tracking-wide text-encre-3 uppercase">
+                  Statut
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {STATUTS.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => changerStatut(leadId, s)}
+                      aria-pressed={lead.statut === s}
+                      className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] font-medium transition-colors ${
+                        lead.statut === s
+                          ? 'border-[var(--color-marque)] bg-[var(--color-marque-clair)] text-[var(--color-marque-fonce)]'
+                          : 'border-bord-fort text-encre-2 hover:bg-fond'
+                      }`}
+                    >
+                      {LIBELLE_STATUT[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {confirmerSuppression ? (
+                <div className="rounded-lg border border-[var(--color-critique)] px-3.5 py-3">
+                  <p className="text-[12.5px] text-encre-2">
+                    Supprimer ce lead et toute sa discussion ? C’est définitif.
+                  </p>
+                  <div className="mt-2.5 flex gap-2">
+                    <Bouton
+                      variante="danger"
+                      onClick={() => {
+                        supprimerLead(leadId)
+                        onFermer()
+                      }}
+                    >
+                      Supprimer
+                    </Bouton>
+                    <Bouton onClick={() => setConfirmerSuppression(false)}>Annuler</Bouton>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Bouton onClick={() => setEdition(true)}>
+                    <Pencil size={14} /> Modifier la fiche
+                  </Bouton>
+                  <Bouton variante="danger" onClick={() => setConfirmerSuppression(true)}>
+                    <Trash2 size={14} /> Supprimer
+                  </Bouton>
+                </div>
+              )}
+            </>
           )}
         </aside>
 
@@ -164,6 +180,8 @@ export default function FicheLead({ leadId, onFermer }: { leadId: string; onFerm
             {fil.map((e, i) =>
               e.type === 'statut' ? (
                 <LigneStatut key={e.id} evenement={e} premier={i === 0} />
+              ) : e.type === 'modification' ? (
+                <LigneModification key={e.id} evenement={e} />
               ) : (
                 <Message key={e.id} evenement={e} aMoi={e.auteurId === moi?.id} />
               ),
@@ -233,6 +251,121 @@ function LigneStatut({ evenement, premier }: { evenement: Evenement; premier: bo
       </span>
       <span className="h-px flex-1 bg-bord" />
     </div>
+  )
+}
+
+/** Une correction de la fiche : ce qui a change, champ par champ. */
+function LigneModification({ evenement }: { evenement: Evenement }) {
+  const { membreDe } = useStore()
+  const auteur = membreDe(evenement.auteurId)
+  return (
+    <div className="mx-auto max-w-[92%] rounded-lg border border-dashed border-bord-fort bg-fond px-3.5 py-2.5 text-[12px] text-encre-2">
+      <div className="text-encre-3">
+        <strong className="font-medium text-encre-2">{auteur?.nom ?? 'Quelqu’un'}</strong> a corrigé
+        la fiche · {formatDate(evenement.date)}
+      </div>
+      <ul className="mt-1 space-y-0.5">
+        {(evenement.texte ?? '').split('\n').map((ligne) => (
+          <li key={ligne}>{ligne}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * Correction de la fiche. Tout membre peut corriger n'importe quel lead —
+ * c'est un outil interne, et c'est precisement ce qui manquait a Septodont.
+ * Changer l'apporteur rebascule le lead d'une equipe a l'autre.
+ */
+function PanneauEdition({ lead, onFini }: { lead: Lead; onFini: () => void }) {
+  const { regions, membreDe, modifierLead } = useStore()
+  const [champs, setChamps] = useState<ChampsFiche>(() => champsDe(lead))
+
+  const maj =
+    (cle: keyof ChampsFiche) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setChamps((c) => ({ ...c, [cle]: e.target.value }))
+
+  const apporteur = membreDe(champs.apporteParId)
+  // Les motifs sont ceux de l'equipe qui recoit — elle suit l'apporteur.
+  const motifs = apporteur ? MOTIFS[AUTRE[apporteur.organisation]] : []
+  const motif = motifs.includes(champs.motif) ? champs.motif : (motifs[0] ?? champs.motif)
+
+  const change = differences(champsDe(lead), champs).length > 0
+  const complet = champs.structure.trim().length > 0 && champs.contact.trim().length > 0
+
+  return (
+    <form
+      className="space-y-3.5"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!complet) return
+        modifierLead(lead.id, { ...champs, motif })
+        onFini()
+      }}
+    >
+      <Champ label="Structure *">
+        <input required value={champs.structure} onChange={maj('structure')} className={classesSaisie} />
+      </Champ>
+      <Champ label="Praticien ou contact *">
+        <input required value={champs.contact} onChange={maj('contact')} className={classesSaisie} />
+      </Champ>
+      <Champ label="Téléphone">
+        <input value={champs.telephone} onChange={maj('telephone')} className={classesSaisie} />
+      </Champ>
+      <Champ label="Email">
+        <input type="email" value={champs.email} onChange={maj('email')} className={classesSaisie} />
+      </Champ>
+      <div className="grid grid-cols-2 gap-3">
+        <Champ label="Ville">
+          <input value={champs.ville} onChange={maj('ville')} className={classesSaisie} />
+        </Champ>
+        <Champ label="Code postal">
+          <input value={champs.codePostal} onChange={maj('codePostal')} className={classesSaisie} />
+        </Champ>
+      </div>
+      <Champ label="Région">
+        <select value={champs.regionId} onChange={maj('regionId')} className={classesSaisie}>
+          {regions.map((r) => (
+            <option key={r.id} value={r.id}>{r.nom}</option>
+          ))}
+        </select>
+      </Champ>
+      <Champ label="Motif">
+        <select value={motif} onChange={maj('motif')} className={classesSaisie}>
+          {motifs.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </Champ>
+      <Champ
+        label="Apporté par"
+        aide={
+          apporteur
+            ? `Compté pour ${LIBELLE_ORGANISATION[apporteur.organisation]}, suivi par ${LIBELLE_ORGANISATION[AUTRE[apporteur.organisation]]}.`
+            : undefined
+        }
+        sansLiaison
+      >
+        <ChoixApporteur
+          valeur={champs.apporteParId}
+          onChange={(id) => setChamps((c) => ({ ...c, apporteParId: id }))}
+        />
+      </Champ>
+
+      <div className="flex flex-wrap gap-2 border-t border-bord pt-3.5">
+        <Bouton type="submit" variante="primaire" disabled={!change || !complet}>
+          Enregistrer
+        </Bouton>
+        <Bouton type="button" onClick={onFini}>
+          Annuler
+        </Bouton>
+      </div>
+      <p className="text-[11.5px] text-encre-3">
+        Chaque correction est inscrite dans la discussion, avec son auteur.
+      </p>
+    </form>
   )
 }
 

@@ -182,7 +182,7 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
               }
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
               <table className="w-full text-left text-[13.5px]">
                 <thead className="border-b border-bord text-[12px] font-medium text-encre-3">
                   <tr>
@@ -244,7 +244,9 @@ export default function Leads({ onOuvrirLead }: { onOuvrirLead: (id: string) => 
         </Carte>
       </div>
 
-      {formulaire && <FormulaireLead onFermer={() => setFormulaire(false)} />}
+      {formulaire && (
+        <FormulaireLead onFermer={() => setFormulaire(false)} onOuvrirLead={onOuvrirLead} />
+      )}
     </>
   )
 }

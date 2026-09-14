@@ -21,25 +21,6 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 /*
- * Qui a le droit de creer un compte, et dans quelle maison.
- *
- * L'organisation n'est PAS choisie par la personne qui s'inscrit : elle est
- * deduite du domaine de son adresse professionnelle. Personne ne peut se
- * declarer Alyxa avec une adresse Septodont, ni l'inverse, ni entrer avec une
- * adresse personnelle.
- */
-create table if not exists domaines_autorises (
-  domaine      text primary key,
-  organisation organisation not null
-);
-
-insert into domaines_autorises (domaine, organisation) values
-  ('alyxa.fr', 'alyxa'),
-  ('septodont.com', 'septodont'),
-  ('septodont.fr', 'septodont')
-on conflict (domaine) do nothing;
-
-/*
  * Une personne qui utilise l'outil, des deux cotes du partenariat.
  * Une ligne par compte authentifie ; sans elle, on ne voit rien.
  */
@@ -115,6 +96,27 @@ create index if not exists leads_region_idx    on leads(region_id);
 create index if not exists leads_transmis_idx  on leads(transmis_le desc);
 create index if not exists leads_mouvement_idx on leads(dernier_mouvement desc);
 
+/*
+ * La fiche est modifiable par tout membre — c'est un outil interne, chacun
+ * corrige ce qu'il voit. Mais la tracabilite de la saisie, elle, ne se
+ * reecrit pas : qui a saisi et quand restent ce qu'ils etaient.
+ */
+create or replace function tracabilite_figee() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.transmis_par := old.transmis_par;
+  new.transmis_le  := old.transmis_le;
+  return new;
+end;
+$$;
+
+drop trigger if exists leads_tracabilite_figee on leads;
+create trigger leads_tracabilite_figee
+  before update on leads
+  for each row execute function tracabilite_figee();
+
+revoke execute on function tracabilite_figee() from public, anon, authenticated;
+
 -- ----------------------------------------------------------------------------
 -- Le fil de chaque lead
 --
@@ -123,8 +125,14 @@ create index if not exists leads_mouvement_idx on leads(dernier_mouvement desc);
 -- ----------------------------------------------------------------------------
 
 do $$ begin
-  create type type_evenement as enum ('statut', 'message');
+  -- Une correction de fiche laisse une trace au meme titre qu'un message.
+  create type type_evenement as enum ('statut', 'message', 'modification');
 exception when duplicate_object then null; end $$;
+
+-- Rattrapage pour une base anterieure a l'ajout des corrections. A jouer seul,
+-- avant le reste : Postgres interdit d'utiliser une valeur d'enum dans la
+-- transaction qui la cree.
+--   alter type type_evenement add value if not exists 'modification';
 
 create table if not exists evenements (
   id         uuid primary key default gen_random_uuid(),
@@ -137,8 +145,8 @@ create table if not exists evenements (
   texte      text,
   survenu_le timestamptz not null default now(),
   constraint contenu_coherent check (
-    (type = 'statut'  and statut is not null) or
-    (type = 'message' and texte  is not null and length(trim(texte)) > 0)
+    (type = 'statut' and statut is not null)
+    or (type in ('message', 'modification') and texte is not null and length(trim(texte)) > 0)
   )
 );
 
@@ -178,17 +186,36 @@ create table if not exists lectures (
 -- ----------------------------------------------------------------------------
 -- Creation de compte
 --
--- A la premiere connexion, l'application appelle creer_mon_membre(nom).
--- L'organisation vient du domaine de l'adresse, jamais du formulaire, et la
--- couleur est prise dans la palette en evitant celles deja utilisees.
+-- Outil interne entre deux equipes qui se connaissent : on cree un compte avec
+-- un nom, une adresse, un mot de passe, et on choisit son equipe. Pas de code
+-- d'acces, pas de confirmation par email, rien a demander a personne.
 -- ----------------------------------------------------------------------------
 
-create or replace function creer_mon_membre(nom_complet text)
+-- L'adresse est consideree comme confirmee des l'inscription.
+create or replace function confirmer_a_l_inscription() returns trigger
+language plpgsql security definer set search_path = auth, public as $$
+begin
+  if new.email_confirmed_at is null then
+    new.email_confirmed_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists confirmer_a_l_inscription on auth.users;
+create trigger confirmer_a_l_inscription
+  before insert on auth.users
+  for each row execute function confirmer_a_l_inscription();
+
+/*
+ * A la premiere connexion, l'application appelle creer_mon_membre(nom, equipe).
+ * L'equipe n'est pas un cloisonnement — les deux voient les memes donnees —
+ * seulement le sens de lecture : ce qu'une equipe envoie, l'autre le recoit.
+ */
+create or replace function creer_mon_membre(nom_complet text, organisation_choisie text)
 returns membres
 language plpgsql security definer set search_path = public as $$
 declare
-  v_email   text;
-  v_domaine text;
   v_org     organisation;
   v_couleur text;
   v_membre  membres;
@@ -201,14 +228,11 @@ begin
     raise exception 'Vous devez être connecté.';
   end if;
 
-  select email into v_email from auth.users where id = auth.uid();
-  v_domaine := lower(split_part(v_email, '@', 2));
-
-  select organisation into v_org from domaines_autorises where domaine = v_domaine;
-  if v_org is null then
-    raise exception 'Le domaine % n''est pas autorisé sur cet outil.', v_domaine
-      using hint = 'Demandez à un administrateur d''ajouter votre domaine.';
-  end if;
+  begin
+    v_org := lower(trim(organisation_choisie))::organisation;
+  exception when others then
+    raise exception 'Choisissez Alyxa ou Septodont.';
+  end;
 
   -- Premiere couleur libre ; on boucle sur la palette si tout est pris.
   select p into v_couleur
@@ -221,7 +245,8 @@ begin
 
   insert into membres (utilisateur_id, nom, organisation, couleur)
   values (auth.uid(), trim(nom_complet), v_org, v_couleur)
-  on conflict (utilisateur_id) do update set nom = excluded.nom
+  on conflict (utilisateur_id) do update
+    set nom = excluded.nom, organisation = excluded.organisation
   returning * into v_membre;
 
   return v_membre;
@@ -238,7 +263,6 @@ $$;
 -- ----------------------------------------------------------------------------
 
 alter table regions             enable row level security;
-alter table domaines_autorises  enable row level security;
 alter table membres             enable row level security;
 alter table leads               enable row level security;
 alter table evenements          enable row level security;
@@ -311,11 +335,14 @@ revoke execute on function public.mon_membre() from public, anon;
 grant  execute on function public.mon_membre() to authenticated;
 
 -- Creation de profil : reservee a une session ouverte.
-revoke execute on function public.creer_mon_membre(text) from public, anon;
-grant  execute on function public.creer_mon_membre(text) to authenticated;
+revoke execute on function public.creer_mon_membre(text, text) from public, anon;
+grant  execute on function public.creer_mon_membre(text, text) to authenticated;
 
-comment on table public.domaines_autorises is
-  'Controle d''acces de l''outil. Aucune regle de lecture : deliberement invisible via l''API. Ajouter un domaine ouvre l''inscription a cette maison.';
+-- Declencheurs : ils s'executent avec les droits du proprietaire, jamais
+-- appeles directement.
+revoke execute on function public.origine_suit_apporteur() from public, anon, authenticated;
+revoke execute on function public.tracabilite_figee()      from public, anon, authenticated;
+revoke execute on function public.confirmer_a_l_inscription() from public, anon, authenticated;
 
 -- ----------------------------------------------------------------------------
 -- Temps reel : les messages arrivent sans rechargement.

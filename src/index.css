@@ -30,8 +30,11 @@
   --color-bien-fond: #e6f7f1;
   --color-attention: #eda100;
   --color-attention-fond: #fdf4e0;
+  /* Teinte foncee : le jaune vif n'est pas lisible en texte sur son fond. */
+  --color-attention-fonce: #8a5d00;
   --color-critique: #e34948;
   --color-critique-fond: #fdecec;
+  --color-critique-fonce: #a82a29;
   --color-neutre-fond: #f1f3f6;
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

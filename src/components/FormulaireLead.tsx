@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
+import AlerteDoublons from '@/components/AlerteDoublons'
 import { Bouton, Champ, classesSaisie, Modale } from '@/components/ui'
 import ChoixApporteur from '@/components/ChoixApporteur'
 import { useStore, type LeadASaisir } from '@/lib/store'
+import type { Doublon } from '@/lib/fiche'
 import { AUTRE, LIBELLE_ORGANISATION, MOTIFS, type Organisation } from '@/lib/types'
 
 /** Les champs d'un lead en cours de saisie. */
@@ -34,18 +36,26 @@ export const brouillonVide = (regionId: string): Brouillon => ({
 export const brouillonComplet = (b: Brouillon): boolean =>
   b.structure.trim().length > 0 && b.contact.trim().length > 0
 
-export default function FormulaireLead({ onFermer }: { onFermer: () => void }) {
-  const { regions, ajouterLeads, moi, membreDe } = useStore()
+export default function FormulaireLead({
+  onFermer,
+  onOuvrirLead,
+}: {
+  onFermer: () => void
+  /** Pour aller voir une fiche existante signalee comme doublon. */
+  onOuvrirLead?: (id: string) => void
+}) {
+  const { regions, ajouterLeads, moi, membreDe, doublons } = useStore()
 
   // Par defaut, on se designe soi-meme : c'est le cas le plus frequent.
   const [apporteParId, setApporteParId] = useState(moi?.id ?? '')
   const [brouillon, setBrouillon] = useState<Brouillon>(() => brouillonVide(regions[0]?.id ?? ''))
+  const [alerte, setAlerte] = useState<Doublon[] | null>(null)
 
   const apporteur = membreDe(apporteParId)
   const cible: Organisation | undefined = apporteur && AUTRE[apporteur.organisation]
   const pret = Boolean(apporteur) && brouillonComplet(brouillon) && Boolean(moi)
 
-  function valider() {
+  function enregistrer() {
     if (!pret || !moi || !apporteur) return
     const lots: LeadASaisir[] = [
       {
@@ -66,6 +76,31 @@ export default function FormulaireLead({ onFermer }: { onFermer: () => void }) {
     ]
     ajouterLeads(lots)
     onFermer()
+  }
+
+  /** On signale un doublon probable avant de creer, jamais apres. */
+  function valider() {
+    if (!pret) return
+    const proches = doublons(brouillon)
+    if (proches.length > 0) {
+      setAlerte(proches)
+      return
+    }
+    enregistrer()
+  }
+
+  if (alerte) {
+    return (
+      <AlerteDoublons
+        doublons={alerte}
+        onVoirFiche={(id) => {
+          onFermer()
+          onOuvrirLead?.(id)
+        }}
+        onCreerQuandMeme={enregistrer}
+        onAnnuler={() => setAlerte(null)}
+      />
+    )
   }
 
   return (

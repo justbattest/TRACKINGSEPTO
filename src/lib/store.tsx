@@ -18,6 +18,14 @@ import {
   type ReactNode,
 } from 'react'
 import * as api from './api'
+import {
+  chercherDoublons,
+  differences,
+  normaliser,
+  resumerDifferences,
+  type ChampsFiche,
+  type Doublon,
+} from './fiche'
 import { enLigne, supabase } from './supabase'
 import { genererDemo, MEMBRES } from '@/data/seed'
 import {
@@ -70,6 +78,13 @@ export interface Contexte extends Donnees {
   membreDe: (id: string) => Membre | undefined
   /** Cree un lot de leads en une fois : une validation, une seule notification. */
   ajouterLeads: (lots: LeadASaisir[]) => void
+  /** Corrige une fiche. Tout membre peut corriger n'importe quel lead. */
+  modifierLead: (id: string, champs: ChampsFiche) => void
+  /** Les fiches deja presentes qui ressemblent a celle qu'on saisit. */
+  doublons: (
+    candidat: Pick<ChampsFiche, 'structure' | 'contact' | 'telephone' | 'email'>,
+    ignorer?: string,
+  ) => Doublon[]
   changerStatut: (id: string, statut: Statut) => void
   envoyerMessage: (id: string, texte: string) => void
   marquerLu: (id: string) => void
@@ -107,7 +122,47 @@ function indexer(donnees: Donnees) {
     regionDe: (id: string) => parRegion.get(id) ?? '—',
     leadDe: (id: string) => parLead.get(id),
     membreDe: (id: string) => parMembre.get(id),
+    // Tous les leads sont deja en memoire : chercher un doublon ne demande
+    // aucun aller-retour, et la demonstration se comporte comme la base.
+    doublons: (
+      candidat: Pick<ChampsFiche, 'structure' | 'contact' | 'telephone' | 'email'>,
+      ignorer?: string,
+    ) => chercherDoublons(donnees.leads, candidat, ignorer),
   }
+}
+
+/** Les champs de fiche d'un lead existant, pour les comparer a une correction. */
+export function champsDe(lead: Lead): ChampsFiche {
+  return {
+    structure: lead.structure,
+    contact: lead.contact,
+    telephone: lead.telephone,
+    email: lead.email,
+    ville: lead.ville,
+    codePostal: lead.codePostal,
+    regionId: lead.regionId,
+    motif: lead.motif,
+    apporteParId: lead.apporteParId,
+  }
+}
+
+/**
+ * Le resume porte au fil : ce qui a change, en clair, identifiants traduits.
+ * Vide quand la correction ne change rien de visible.
+ */
+function resumerCorrection(
+  lead: Lead,
+  champs: ChampsFiche,
+  regions: Region[],
+  membres: Membre[],
+): string {
+  const nomRegion = (id: string) => regions.find((r) => r.id === id)?.nom ?? id
+  const nomMembre = (id: string) => membres.find((m) => m.id === id)?.nom ?? id
+  return resumerDifferences(
+    differences(champsDe(lead), normaliser(champs), (champ, valeur) =>
+      champ === 'regionId' ? nomRegion(valeur) : champ === 'apporteParId' ? nomMembre(valeur) : valeur,
+    ),
+  )
 }
 
 export function Fournisseur({ children }: { children: ReactNode }) {
@@ -220,6 +275,26 @@ function FournisseurLocal({ children }: { children: ReactNode }) {
             }
           })
           return { ...e, leads: [...nouveaux, ...e.leads] }
+        }),
+
+      modifierLead: (id, champs) =>
+        modifier((e) => {
+          const lead = e.leads.find((l) => l.id === id)
+          if (!lead) return e
+          const resume = resumerCorrection(lead, champs, e.regions, e.membres)
+          if (!resume) return e
+          const net = normaliser(champs)
+          const leads = e.leads.map((l) =>
+            l.id === id
+              ? {
+                  ...l,
+                  ...net,
+                  // Comme en base : l'origine suit l'equipe de l'apporteur.
+                  origine: origineDe(e.membres, net.apporteParId),
+                }
+              : l,
+          )
+          return { ...e, leads: ajouterAuFil({ ...e, leads }, id, { type: 'modification', texte: resume }) }
         }),
 
       changerStatut: (id, statut) =>
@@ -376,6 +451,13 @@ function FournisseurDistant({ children }: { children: ReactNode }) {
             })),
           )
         }),
+
+      modifierLead: (id, champs) => {
+        const lead = index.leadDe(id)
+        if (!lead) return
+        const resume = resumerCorrection(lead, champs, donnees.regions, donnees.membres)
+        agir(() => api.modifierLead(id, champs, moiId, resume))
+      },
 
       changerStatut: (id, statut) => agir(() => api.changerStatut(id, moiId, statut)),
 

@@ -196,7 +196,8 @@ export function Segments<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-bord-fort bg-carte p-0.5">
+    <div className="-mx-1 max-w-full overflow-x-auto px-1 py-0.5">
+      <div className="inline-flex rounded-lg border border-bord-fort bg-carte p-0.5">
       {options.map((o) => (
         <button
           key={o.valeur}
@@ -214,6 +215,7 @@ export function Segments<T extends string>({
           )}
         </button>
       ))}
+      </div>
     </div>
   )
 }
