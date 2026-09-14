@@ -1,11 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDownLeft, ArrowUpRight, MessageSquare } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, Check, ClipboardCopy, MessageSquare } from 'lucide-react'
 import Entete from '@/components/Entete'
-import { Avatar, Carte, EtiquetteSens, EtiquetteStatut, Pastille, Vide } from '@/components/ui'
+import { Avatar, Bouton, Carte, EtiquetteSens, EtiquetteStatut, Pastille, Vide } from '@/components/ui'
 import { AXE, GRILLE, Infobulle, Legende, RAMPE_ENTRANT, RAMPE_SORTANT, SERIES } from '@/components/graphiques'
 import { bilan, entonnoir, equilibre, joursDepuis, leadsDormants, leadsNonLus, repartir, serieMensuelle, type Bilan } from '@/lib/stats'
 import { formatDate, libellePeriode } from '@/lib/dates'
+import { pointHebdo } from '@/lib/recap'
 import { useStore } from '@/lib/store'
 import {
   AUTRE,
@@ -22,6 +23,42 @@ import {
 } from '@/lib/types'
 
 const pourcent = (n: number, d = 0) => `${(n * 100).toLocaleString('fr-FR', { maximumFractionDigits: d })} %`
+
+/**
+ * Met le point de la semaine dans le presse-papier, pret a coller dans le
+ * groupe WhatsApp — c'est la que les deux equipes se parlent vraiment.
+ */
+function BoutonPointHebdo({ leads, mienne }: { leads: Lead[]; mienne: Organisation }) {
+  const [copie, setCopie] = useState(false)
+
+  async function copier() {
+    const { texte } = pointHebdo(leads, mienne)
+    try {
+      await navigator.clipboard.writeText(texte)
+    } catch {
+      // Presse-papier refuse (navigateur ancien, page non securisee) : on
+      // presente le texte pour qu'il reste copiable a la main.
+      window.prompt('Copiez le point de la semaine :', texte)
+      return
+    }
+    setCopie(true)
+    setTimeout(() => setCopie(false), 2200)
+  }
+
+  return (
+    <Bouton onClick={() => void copier()} title="Pour le coller dans le groupe">
+      {copie ? (
+        <>
+          <Check size={15} className="text-[var(--color-bien)]" /> Copié
+        </>
+      ) : (
+        <>
+          <ClipboardCopy size={15} /> Copier le point de la semaine
+        </>
+      )}
+    </Bouton>
+  )
+}
 
 export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) => void }) {
   const { leads, lectures, membreId, membreDe, regionDe, maMaison } = useStore()
@@ -41,7 +78,9 @@ export default function Tableau({ onOuvrirLead }: { onOuvrirLead: (id: string) =
       <Entete
         titre="Tableau de bord"
         sous={`L’état de l’échange avec ${LIBELLE_ORGANISATION[autre]} : ce qui circule dans chaque sens, et ce que ça donne.`}
-      />
+      >
+        <BoutonPointHebdo leads={leads} mienne={maMaison} />
+      </Entete>
 
       <div className="space-y-6 px-6 py-6 lg:px-8">
         {/* L'equilibre : la question centrale d'un echange reciproque. */}
